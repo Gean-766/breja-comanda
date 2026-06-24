@@ -231,13 +231,44 @@ export default function App() {
   )
 }
 
+const ORDEM_TAM = { Lata: 0, Latão: 1 }
+
 function Detalhe({ cliente, cervejas, consumos, resumo, onAdd, onRemove, onFechar, onExcluir, onVoltar }) {
   const [qtd, setQtd] = useState(1)
+  const [recentes, setRecentes] = useState([]) // nomes usados, mais recente primeiro
 
-  function tocarCerveja(cv) {
+  function tocar(cv) {
     onAdd(cliente.id, cv, qtd)
     setQtd(1)
+    setRecentes((r) => [cv.nome, ...r.filter((n) => n !== cv.nome)])
   }
+
+  // agrupa os produtos por nome (Lata + Latão viram um card só) e ordena
+  // colocando os que a pessoa está bebendo no topo
+  const grupos = useMemo(() => {
+    const map = new Map()
+    for (const cv of cervejas) {
+      if (!map.has(cv.nome))
+        map.set(cv.nome, { nome: cv.nome, ordem: cv.ordem, variantes: [] })
+      map.get(cv.nome).variantes.push(cv)
+    }
+    const arr = [...map.values()]
+    for (const g of arr)
+      g.variantes.sort(
+        (a, b) => (ORDEM_TAM[a.tamanho] ?? 2) - (ORDEM_TAM[b.tamanho] ?? 2)
+      )
+    arr.sort((a, b) => {
+      const ia = recentes.indexOf(a.nome)
+      const ib = recentes.indexOf(b.nome)
+      if (ia !== -1 || ib !== -1) {
+        if (ia === -1) return 1
+        if (ib === -1) return -1
+        return ia - ib
+      }
+      return a.ordem - b.ordem
+    })
+    return arr
+  }, [cervejas, recentes])
 
   return (
     <div className="overlay">
@@ -272,25 +303,36 @@ function Detalhe({ cliente, cervejas, consumos, resumo, onAdd, onRemove, onFecha
         </div>
 
         <div className="grade-cervejas">
-          {cervejas.map((cv) => {
-            const cor = corCerveja(cv.nome)
+          {grupos.map((g) => {
+            const cor = corCerveja(g.nome)
+            const destaque = recentes[0] === g.nome
+            const dividido = g.variantes.length > 1
             return (
-              <button
-                key={cv.id}
-                className="btn-cerveja"
+              <div
+                key={g.nome}
+                className={'card-prod' + (destaque ? ' destaque' : '')}
                 style={{ background: cor.bg, color: cor.fg }}
-                onClick={() => tocarCerveja(cv)}
               >
-                <span className="bc-nome">{cv.nome}</span>
-                {cv.tamanho && <span className="bc-tam">{cv.tamanho}</span>}
-                <span className="bc-preco">{money(cv.preco)}</span>
-              </button>
+                <div className="cp-nome">{g.nome}</div>
+                <div className="cp-tap">
+                  {g.variantes.map((v) => (
+                    <button
+                      key={v.id}
+                      className={'cp-half' + (dividido ? '' : ' cp-single')}
+                      onClick={() => tocar(v)}
+                    >
+                      {v.tamanho && <span className="cp-tam">{v.tamanho}</span>}
+                      <span className="cp-preco">{money(v.preco)}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
             )
           })}
         </div>
 
         <div className="historico">
-          {consumos.length === 0 && <p className="vazio">Ainda sem cervejas.</p>}
+          {consumos.length === 0 && <p className="vazio">Ainda nada lançado.</p>}
           {consumos.map((co) => (
             <div key={co.id} className="item">
               <span className="item-hora">🕐 {hora(co.created_at)}</span>
@@ -309,7 +351,7 @@ function Detalhe({ cliente, cervejas, consumos, resumo, onAdd, onRemove, onFecha
 
         <footer className="det-rodape">
           <div className="total-grande">
-            <span>{resumo.qtd} cervejas</span>
+            <span>{resumo.qtd} itens</span>
             <strong>{money(resumo.total)}</strong>
           </div>
           <button
