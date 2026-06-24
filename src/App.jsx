@@ -89,7 +89,7 @@ export default function App() {
       .from('consumos')
       .insert({
         cliente_id,
-        beer_nome: cerveja.nome,
+        beer_nome: cerveja.tamanho ? `${cerveja.nome} ${cerveja.tamanho}` : cerveja.nome,
         preco_unit: cerveja.preco,
         quantidade,
       })
@@ -282,6 +282,7 @@ function Detalhe({ cliente, cervejas, consumos, resumo, onAdd, onRemove, onFecha
                 onClick={() => tocarCerveja(cv)}
               >
                 <span className="bc-nome">{cv.nome}</span>
+                {cv.tamanho && <span className="bc-tam">{cv.tamanho}</span>}
                 <span className="bc-preco">{money(cv.preco)}</span>
               </button>
             )
@@ -328,6 +329,7 @@ function Detalhe({ cliente, cervejas, consumos, resumo, onAdd, onRemove, onFecha
 
 function AbaCervejas({ cervejas, setCervejas, recarregar }) {
   const [nome, setNome] = useState('')
+  const [tamanho, setTamanho] = useState('')
   const [preco, setPreco] = useState('')
 
   async function salvarPreco(id, valor) {
@@ -343,11 +345,12 @@ function AbaCervejas({ cervejas, setCervejas, recarregar }) {
     const ordem = cervejas.length
     const { data } = await supabase
       .from('cervejas')
-      .insert({ nome: n, preco: v, ordem })
+      .insert({ nome: n, tamanho, preco: v, ordem })
       .select()
       .single()
     if (data) setCervejas((cs) => [...cs, data])
     setNome('')
+    setTamanho('')
     setPreco('')
   }
 
@@ -357,13 +360,18 @@ function AbaCervejas({ cervejas, setCervejas, recarregar }) {
     setCervejas((cs) => cs.filter((c) => c.id !== id))
   }
 
+  const escolherTam = (t) => setTamanho((atual) => (atual === t ? '' : t))
+
   return (
     <main className="conteudo">
       <h3 className="sec">Preços dos produtos</h3>
       <div className="lista-cervejas">
         {cervejas.map((c) => (
           <div key={c.id} className="linha-cerveja">
-            <span className="lc-nome">{c.nome}</span>
+            <span className="lc-nome">
+              {c.nome}
+              {c.tamanho && <span className="lc-tam">{c.tamanho}</span>}
+            </span>
             <div className="lc-preco">
               <span>R$</span>
               <input
@@ -383,25 +391,43 @@ function AbaCervejas({ cervejas, setCervejas, recarregar }) {
       </div>
 
       <h3 className="sec">Adicionar produto</h3>
-      <div className="add-cerveja">
+      <div className="form-produto">
         <input
           className="campo"
           placeholder="Nome (ex: Heineken, Água, Refri)"
           value={nome}
           onChange={(e) => setNome(e.target.value)}
         />
-        <input
-          className="campo campo-preco-novo"
-          placeholder="Preço"
-          type="number"
-          step="0.50"
-          inputMode="decimal"
-          value={preco}
-          onChange={(e) => setPreco(e.target.value)}
-        />
-        <button className="btn-grande" onClick={adicionar}>
-          + Add produto
-        </button>
+        <div className="tam-pick">
+          <span className="tam-label">Tamanho:</span>
+          <button
+            className={tamanho === 'Lata' ? 'tam on' : 'tam'}
+            onClick={() => escolherTam('Lata')}
+          >
+            Lata
+          </button>
+          <button
+            className={tamanho === 'Latão' ? 'tam on' : 'tam'}
+            onClick={() => escolherTam('Latão')}
+          >
+            Latão
+          </button>
+          <span className="tam-dica">(deixe vazio p/ água, refri…)</span>
+        </div>
+        <div className="form-linha">
+          <input
+            className="campo campo-preco-novo"
+            placeholder="Preço"
+            type="number"
+            step="0.50"
+            inputMode="decimal"
+            value={preco}
+            onChange={(e) => setPreco(e.target.value)}
+          />
+          <button className="btn-grande" onClick={adicionar}>
+            + Add produto
+          </button>
+        </div>
       </div>
     </main>
   )

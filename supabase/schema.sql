@@ -7,6 +7,7 @@
 create table if not exists cervejas (
   id uuid primary key default gen_random_uuid(),
   nome text not null,
+  tamanho text not null default '',
   preco numeric(10,2) not null default 0,
   ativo boolean not null default true,
   ordem int not null default 0,
@@ -48,10 +49,10 @@ create policy "acesso_livre" on cervejas for all using (true) with check (true);
 create policy "acesso_livre" on clientes for all using (true) with check (true);
 create policy "acesso_livre" on consumos for all using (true) with check (true);
 
--- 5) Cervejas iniciais (ajuste os preços depois na aba "Cervejas" do app)
-insert into cervejas (nome, preco, ordem) values
-  ('Brahma',    5.00, 0),
-  ('Original',  7.00, 1),
-  ('Heineken',  8.00, 2),
-  ('Spaten',    7.00, 3),
-  ('Antarctica',5.00, 4);
+-- 5) Cervejas iniciais (ajuste os preços/tamanhos depois na aba "Produtos" do app)
+insert into cervejas (nome, tamanho, preco, ordem) values
+  ('Brahma',    'Lata', 5.00, 0),
+  ('Original',  'Lata', 7.00, 1),
+  ('Heineken',  'Lata', 8.00, 2),
+  ('Spaten',    'Lata', 7.00, 3),
+  ('Antarctica','Lata', 5.00, 4);

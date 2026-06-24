@@ -18,7 +18,11 @@
       "Bash(gh repo *)",
       "Bash(git rm *)",
       "Bash(git add *)",
-      "Bash(git commit -m ' *)"
+      "Bash(git commit -m ' *)",
+      "Bash(git push *)",
+      "Bash(git commit --allow-empty -m ' *)",
+      "Bash(node _migra.mjs)",
+      "Bash(rm -f _migra.mjs)"
     ]
   }
 }
