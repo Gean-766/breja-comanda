@@ -306,21 +306,34 @@ function Detalhe({ cliente, cervejas, consumos, resumo, onAdd, onRemove, onFecha
           {grupos.map((g) => {
             const cor = corCerveja(g.nome)
             const destaque = recentes[0] === g.nome
+            const latao = g.variantes.find((v) => v.tamanho === 'Latão')
+            const lata = g.variantes.find((v) => v.tamanho === 'Lata')
+            const dir = lata || g.variantes.find((v) => !v.tamanho) // lado direito
             return (
               <div
                 key={g.nome}
                 className={'row-prod' + (destaque ? ' destaque' : '')}
                 style={{ background: cor.bg, color: cor.fg }}
               >
+                {latao ? (
+                  <button className="rp-side" onClick={() => tocar(latao)}>
+                    <span className="rp-tam">Latão</span>
+                    <span className="rp-preco">{money(latao.preco)}</span>
+                  </button>
+                ) : (
+                  <div className="rp-side rp-empty" />
+                )}
+
                 <div className="rp-nome">{g.nome}</div>
-                <div className="rp-tap">
-                  {g.variantes.map((v) => (
-                    <button key={v.id} className="rp-half" onClick={() => tocar(v)}>
-                      {v.tamanho && <span className="rp-tam">{v.tamanho}</span>}
-                      <span className="rp-preco">{money(v.preco)}</span>
-                    </button>
-                  ))}
-                </div>
+
+                {dir ? (
+                  <button className="rp-side" onClick={() => tocar(dir)}>
+                    {dir.tamanho && <span className="rp-tam">{dir.tamanho}</span>}
+                    <span className="rp-preco">{money(dir.preco)}</span>
+                  </button>
+                ) : (
+                  <div className="rp-side rp-empty" />
+                )}
               </div>
             )
           })}
