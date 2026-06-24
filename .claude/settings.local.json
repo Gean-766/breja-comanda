@@ -1,0 +1,24 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm -v)",
+      "Bash(git -C \"C:/Users/geany/Desktop/Comercios - Mutum\" status)",
+      "Bash(npm install *)",
+      "Bash(npm run *)",
+      "Bash(echo \"- [Projeto Comanda Mutum]\\(projeto-comanda-mutum.md\\) — app de controle de cervejas da distribuidora \\(Vite+React+Supabase+Vercel\\)\")",
+      "Bash(git --version)",
+      "Bash(gh --version)",
+      "Bash(vercel --version)",
+      "Bash(psql --version)",
+      "Bash(gh auth *)",
+      "Bash(node \"C:/Users/geany/AppData/Local/Temp/claude/C--Users-geany-Desktop-Comercios---Mutum/1b65de74-844e-4894-a178-5376a7d0a680/scratchpad/setup-db.mjs\")",
+      "Bash(node _setup-db.mjs)",
+      "Bash(node _test-client.mjs)",
+      "Bash(rm -f _test-client.mjs)",
+      "Bash(gh repo *)",
+      "Bash(git rm *)",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)"
+    ]
+  }
+}
