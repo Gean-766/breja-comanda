@@ -302,27 +302,22 @@ function Detalhe({ cliente, cervejas, consumos, resumo, onAdd, onRemove, onFecha
           <button onClick={() => setQtd((q) => q + 1)}>+</button>
         </div>
 
-        <div className="grade-cervejas">
+        <div className="lista-prod">
           {grupos.map((g) => {
             const cor = corCerveja(g.nome)
             const destaque = recentes[0] === g.nome
-            const dividido = g.variantes.length > 1
             return (
               <div
                 key={g.nome}
-                className={'card-prod' + (destaque ? ' destaque' : '')}
+                className={'row-prod' + (destaque ? ' destaque' : '')}
                 style={{ background: cor.bg, color: cor.fg }}
               >
-                <div className="cp-nome">{g.nome}</div>
-                <div className="cp-tap">
+                <div className="rp-nome">{g.nome}</div>
+                <div className="rp-tap">
                   {g.variantes.map((v) => (
-                    <button
-                      key={v.id}
-                      className={'cp-half' + (dividido ? '' : ' cp-single')}
-                      onClick={() => tocar(v)}
-                    >
-                      {v.tamanho && <span className="cp-tam">{v.tamanho}</span>}
-                      <span className="cp-preco">{money(v.preco)}</span>
+                    <button key={v.id} className="rp-half" onClick={() => tocar(v)}>
+                      {v.tamanho && <span className="rp-tam">{v.tamanho}</span>}
+                      <span className="rp-preco">{money(v.preco)}</span>
                     </button>
                   ))}
                 </div>
