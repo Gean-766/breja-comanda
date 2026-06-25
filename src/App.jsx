@@ -233,6 +233,16 @@ export default function App() {
 
 const ORDEM_TAM = { Lata: 0, Latão: 1 }
 
+// categorias do cadastro: cada uma filtra os formatos que fazem sentido.
+// "Lata"/"Latão" são exatos de propósito (disparam o card Latão | Nome | Lata).
+const CATEGORIAS = [
+  { id: 'cerveja', label: '🍺 Cerveja', formatos: ['Lata', 'Latão', 'Long Neck', 'Garrafa 600ml', 'Litrão 1L'] },
+  { id: 'refri', label: '🥤 Refri', formatos: ['Lata', 'Garrafa 600ml', '1L', '1,5L', '2L'] },
+  { id: 'agua', label: '💧 Água', formatos: ['Copo 300ml', 'Garrafa 500ml', 'Garrafa 1,5L'] },
+  { id: 'outro', label: '➕ Outro', formatos: [] },
+]
+const rankFmt = (t) => (t === 'Latão' ? 0 : t === 'Lata' ? 1 : 2)
+
 function Detalhe({ cliente, cervejas, consumos, resumo, onAdd, onRemove, onFechar, onExcluir, onVoltar }) {
   const [qtd, setQtd] = useState(1)
   const [recentes, setRecentes] = useState([]) // nomes usados, mais recente primeiro
@@ -418,12 +428,24 @@ function Detalhe({ cliente, cervejas, consumos, resumo, onAdd, onRemove, onFecha
 
 function AbaCervejas({ cervejas, setCervejas, recarregar }) {
   const [nome, setNome] = useState('')
-  const [selLata, setSelLata] = useState(false)
-  const [selLatao, setSelLatao] = useState(false)
-  const [precoLata, setPrecoLata] = useState('')
-  const [precoLatao, setPrecoLatao] = useState('')
-  const [precoSem, setPrecoSem] = useState('')
-  const [extras, setExtras] = useState([]) // [{ tam, preco }]
+  const [categoria, setCategoria] = useState('cerveja')
+  const [formatos, setFormatos] = useState({}) // { 'Lata': '5,00', 'Latão': '7,00' }
+  const [extras, setExtras] = useState([]) // [{ tam, preco }] livres
+
+  const cat = CATEGORIAS.find((c) => c.id === categoria) || CATEGORIAS[0]
+
+  const escolherCategoria = (id) => {
+    setCategoria(id)
+    setFormatos({}) // formatos dependem da categoria
+  }
+  const toggleFormato = (f) =>
+    setFormatos((m) => {
+      const n = { ...m }
+      if (f in n) delete n[f]
+      else n[f] = ''
+      return n
+    })
+  const setFormatoPreco = (f, v) => setFormatos((m) => ({ ...m, [f]: v }))
 
   const addExtra = (tam = '') => setExtras((e) => [...e, { tam, preco: '' }])
   const setExtra = (i, campo, val) =>
@@ -440,25 +462,22 @@ function AbaCervejas({ cervejas, setCervejas, recarregar }) {
     const n = nome.trim()
     if (!n) return
     const parse = (p) => Number(String(p).replace(',', '.')) || 0
-    const extrasOk = extras.filter((x) => x.tam.trim())
     const novos = []
-    if (selLatao) novos.push({ nome: n, tamanho: 'Latão', preco: parse(precoLatao) })
-    if (selLata) novos.push({ nome: n, tamanho: 'Lata', preco: parse(precoLata) })
-    for (const x of extrasOk)
+    Object.entries(formatos)
+      .sort((a, b) => rankFmt(a[0]) - rankFmt(b[0]))
+      .forEach(([tam, preco]) =>
+        novos.push({ nome: n, tamanho: tam, preco: parse(preco) })
+      )
+    for (const x of extras.filter((x) => x.tam.trim()))
       novos.push({ nome: n, tamanho: x.tam.trim(), preco: parse(x.preco) })
-    if (!selLata && !selLatao && extrasOk.length === 0)
-      novos.push({ nome: n, tamanho: '', preco: parse(precoSem) })
+    if (novos.length === 0) novos.push({ nome: n, tamanho: '', preco: 0 })
 
     const base = cervejas.length
     const comOrdem = novos.map((x, i) => ({ ...x, ordem: base + i }))
     const { data } = await supabase.from('cervejas').insert(comOrdem).select()
     if (data) setCervejas((cs) => [...cs, ...data])
     setNome('')
-    setSelLata(false)
-    setSelLatao(false)
-    setPrecoLata('')
-    setPrecoLatao('')
-    setPrecoSem('')
+    setFormatos({})
     setExtras([])
   }
 
@@ -505,82 +524,60 @@ function AbaCervejas({ cervejas, setCervejas, recarregar }) {
           onChange={(e) => setNome(e.target.value)}
         />
         <div className="tam-pick">
-          <span className="tam-label">Tem no estoque:</span>
-          <button
-            className={selLata ? 'tam on' : 'tam'}
-            onClick={() => setSelLata((v) => !v)}
-          >
-            {selLata ? '✓ ' : ''}Lata
-          </button>
-          <button
-            className={selLatao ? 'tam on' : 'tam'}
-            onClick={() => setSelLatao((v) => !v)}
-          >
-            {selLatao ? '✓ ' : ''}Latão
-          </button>
-          <span className="tam-dica">(marque os 2 se tiver; nenhum p/ água, refri…)</span>
+          <span className="tam-label">É o quê?</span>
+          {CATEGORIAS.map((c) => (
+            <button
+              key={c.id}
+              className={categoria === c.id ? 'tam on' : 'tam'}
+              onClick={() => escolherCategoria(c.id)}
+            >
+              {c.label}
+            </button>
+          ))}
         </div>
 
-        {selLatao && (
-          <div className="preco-tam">
-            <span className="preco-tam-lbl">🍺 Latão — R$</span>
-            <input
-              className="campo campo-preco-novo"
-              placeholder="0,00"
-              type="number"
-              step="0.50"
-              inputMode="decimal"
-              value={precoLatao}
-              onChange={(e) => setPrecoLatao(e.target.value)}
-            />
-          </div>
-        )}
-        {selLata && (
-          <div className="preco-tam">
-            <span className="preco-tam-lbl">🥫 Lata — R$</span>
-            <input
-              className="campo campo-preco-novo"
-              placeholder="0,00"
-              type="number"
-              step="0.50"
-              inputMode="decimal"
-              value={precoLata}
-              onChange={(e) => setPrecoLata(e.target.value)}
-            />
-          </div>
-        )}
-        {!selLata && !selLatao && extras.length === 0 && (
-          <div className="preco-tam">
-            <span className="preco-tam-lbl">Preço — R$</span>
-            <input
-              className="campo campo-preco-novo"
-              placeholder="0,00"
-              type="number"
-              step="0.50"
-              inputMode="decimal"
-              value={precoSem}
-              onChange={(e) => setPrecoSem(e.target.value)}
-            />
+        {cat.formatos.length > 0 && (
+          <div className="tam-pick">
+            <span className="tam-label">Formatos:</span>
+            {cat.formatos.map((f) => (
+              <button
+                key={f}
+                className={f in formatos ? 'tam on' : 'tam'}
+                onClick={() => toggleFormato(f)}
+              >
+                {f in formatos ? '✓ ' : ''}
+                {f}
+              </button>
+            ))}
           </div>
         )}
 
+        {Object.keys(formatos).map((f) => (
+          <div key={f} className="preco-tam">
+            <span className="preco-tam-lbl">{f} — R$</span>
+            <input
+              className="campo campo-preco-novo"
+              placeholder="0,00"
+              type="number"
+              step="0.50"
+              inputMode="decimal"
+              value={formatos[f]}
+              onChange={(e) => setFormatoPreco(f, e.target.value)}
+            />
+          </div>
+        ))}
+
         <div className="extras-sec">
-          <span className="tam-label">Outros tamanhos (opcional):</span>
           <div className="chips">
-            {['269ml', '350ml', '473ml', '600ml', '1L', 'Long Neck'].map((s) => (
-              <button key={s} className="chip" onClick={() => addExtra(s)}>
-                + {s}
-              </button>
-            ))}
             <button className="chip chip-livre" onClick={() => addExtra('')}>
-              + Outro…
+              + Outro formato
             </button>
           </div>
           {extras.map((x, i) => (
             <div key={i} className="preco-tam extra-row">
               <input
                 className="campo extra-tam"
-                placeholder="Tamanho (ex: 600ml)"
+                placeholder="Formato (ex: Garrafinha 300ml)"
                 value={x.tam}
                 onChange={(e) => setExtra(i, 'tam', e.target.value)}
               />
