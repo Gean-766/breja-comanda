@@ -592,7 +592,16 @@ button:active {
 .form-produto {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 14px;
+  background: #1b1b27;
+  border: 1px solid var(--card2);
+  border-radius: 16px;
+  padding: 16px;
+}
+/* inputs/botões do form contrastam com o fundo do card */
+.form-produto .campo,
+.form-produto .tam {
+  background: var(--bg);
 }
 .tam-pick {
   display: flex;
@@ -600,23 +609,36 @@ button:active {
   flex-wrap: wrap;
   gap: 8px;
 }
+/* rótulo vira cabeçalho de seção (ocupa a linha toda) */
 .tam-label {
+  width: 100%;
   color: var(--muted);
-  font-size: 15px;
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  margin-bottom: 2px;
 }
 .tam {
-  padding: 10px 18px;
+  padding: 11px 16px;
   font-size: 16px;
   font-weight: 700;
   border: 2px solid var(--card2);
-  border-radius: 10px;
-  background: var(--card);
+  border-radius: 999px;
+  background: var(--bg);
   color: var(--text);
 }
 .tam.on {
   background: var(--accent);
   color: var(--accent-dark);
   border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(212, 162, 60, 0.25);
+}
+/* separadores leves entre as seções do form */
+.form-produto > .extras-sec,
+.form-produto > .cor-sec {
+  padding-top: 12px;
+  border-top: 1px solid var(--card2);
 }
 .tam-dica {
   color: var(--muted);
@@ -674,6 +696,12 @@ button:active {
 .chip-livre {
   border-style: dashed;
   color: var(--accent);
+}
+.chip-sug {
+  background: #cfe8ff;
+  color: #0b2e4d;
+  border-color: #9fd0ff;
+  font-weight: 800;
 }
 .extra-row .preco-rs {
   min-width: 0;

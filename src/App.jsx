@@ -384,13 +384,13 @@ function levenshtein(a, b) {
   return dp[n]
 }
 
-// sugere marcas: autocomplete (começa/contém) ou correção de digitação (perto)
-function sugerirMarcas(texto) {
+// sugere nomes de uma lista: autocomplete (começa/contém) ou correção (perto)
+function sugerir(texto, lista) {
   const qn = normalizar(texto)
   if (qn.length < 2) return null
-  if (MARCAS_POPULARES.some((m) => normalizar(m) === qn)) return null // já exato
+  if (lista.some((m) => normalizar(m) === qn)) return null // já exato
   const scored = []
-  for (const m of MARCAS_POPULARES) {
+  for (const m of lista) {
     const mn = normalizar(m)
     let score
     let tipo
@@ -414,6 +414,8 @@ function sugerirMarcas(texto) {
   const top = scored.slice(0, 5)
   return { nomes: top.map((s) => s.m), correcao: top.every((s) => s.tipo === 'correcao') }
 }
+
+const sugerirMarcas = (texto) => sugerir(texto, MARCAS_POPULARES)
 
 function Detalhe({ cliente, cervejas, consumos, resumo, onAdd, onRemove, onFechar, onExcluir, onVoltar }) {
   const [qtd, setQtd] = useState(1)
@@ -455,6 +457,13 @@ function Detalhe({ cliente, cervejas, consumos, resumo, onAdd, onRemove, onFecha
     : ordenados
   const expandido = !!q || mostrarTodos
   const visiveis = expandido ? filtrados : filtrados.slice(0, 3)
+
+  // se a busca não achou nada, tenta corrigir pelo nome dos produtos cadastrados
+  const nomesProdutos = useMemo(
+    () => [...new Set(cervejas.map((c) => c.nome))],
+    [cervejas]
+  )
+  const sugBusca = filtrados.length === 0 ? sugerir(buscaProd, nomesProdutos) : null
 
   return (
     <div className="overlay">
@@ -507,13 +516,29 @@ function Detalhe({ cliente, cervejas, consumos, resumo, onAdd, onRemove, onFecha
         </div>
 
         <div className="lista-prod">
-          {filtrados.length === 0 && (
-            <p className="vazio">
-              {q
-                ? 'Nenhum produto encontrado.'
-                : 'Nenhum produto cadastrado. Vá em "Produtos".'}
-            </p>
-          )}
+          {filtrados.length === 0 &&
+            (sugBusca ? (
+              <div className="sug-marca">
+                <span className="tam-label">🤔 Você quis dizer?</span>
+                <div className="chips">
+                  {sugBusca.nomes.map((m) => (
+                    <button
+                      key={m}
+                      className="chip chip-sug"
+                      onClick={() => setBuscaProd(m)}
+                    >
+                      {m}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <p className="vazio">
+                {q
+                  ? 'Nenhum produto encontrado.'
+                  : 'Nenhum produto cadastrado. Vá em "Produtos".'}
+              </p>
+            ))}
           {visiveis.map((c) => {
             const cor = corDe(c.nome, c.cor)
             return (
@@ -763,7 +788,7 @@ function AbaCervejas({ cervejas, setCervejas, onErro }) {
             </span>
             <div className="chips">
               {sugMarca.nomes.map((m) => (
-                <button key={m} className="chip" onClick={() => setNome(m)}>
+                <button key={m} className="chip chip-sug" onClick={() => setNome(m)}>
                   {m}
                 </button>
               ))}
