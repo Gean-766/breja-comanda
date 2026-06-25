@@ -417,47 +417,44 @@ function sugerirMarcas(texto) {
 
 function Detalhe({ cliente, cervejas, consumos, resumo, onAdd, onRemove, onFechar, onExcluir, onVoltar }) {
   const [qtd, setQtd] = useState(1)
-  const [recentes, setRecentes] = useState([]) // nomes usados, mais recente primeiro
   const [buscaProd, setBuscaProd] = useState('')
+  const [mostrarTodos, setMostrarTodos] = useState(false)
+  const [ultimoTocado, setUltimoTocado] = useState(null) // só p/ a animação
 
-  function tocar(cv) {
-    onAdd(cliente.id, cv, qtd)
+  const reprDe = (c) => (c.tamanho ? `${c.nome} ${c.tamanho}` : c.nome)
+
+  function tocar(c) {
+    onAdd(cliente.id, c, qtd)
     setQtd(1)
-    setBuscaProd('') // ao selecionar, limpa a busca; o produto sobe pro topo
-    setRecentes((r) => [cv.nome, ...r.filter((n) => n !== cv.nome)])
+    setBuscaProd('') // ao selecionar, limpa a busca
+    setUltimoTocado(c.id)
   }
 
-  // agrupa os produtos por nome (Lata + Latão viram um card só) e ordena
-  // colocando os que a pessoa está bebendo no topo
-  const grupos = useMemo(() => {
-    const map = new Map()
-    for (const cv of cervejas) {
-      if (!map.has(cv.nome))
-        map.set(cv.nome, { nome: cv.nome, ordem: cv.ordem, cor: cv.cor || null, variantes: [] })
-      map.get(cv.nome).variantes.push(cv)
+  // ordem dos produtos: o último consumido fica no topo. Vem do histórico salvo,
+  // então persiste mesmo saindo e voltando na comanda.
+  const ordenados = useMemo(() => {
+    const recencia = new Map() // beer_nome -> created_at mais recente
+    for (const co of consumos) {
+      if (!recencia.has(co.beer_nome)) recencia.set(co.beer_nome, co.created_at)
     }
-    const arr = [...map.values()]
-    for (const g of arr)
-      g.variantes.sort(
-        (a, b) => (ORDEM_TAM[a.tamanho] ?? 2) - (ORDEM_TAM[b.tamanho] ?? 2)
-      )
-    arr.sort((a, b) => {
-      const ia = recentes.indexOf(a.nome)
-      const ib = recentes.indexOf(b.nome)
-      if (ia !== -1 || ib !== -1) {
-        if (ia === -1) return 1
-        if (ib === -1) return -1
-        return ia - ib
-      }
-      return a.ordem - b.ordem
+    return [...cervejas].sort((a, b) => {
+      const ra = recencia.get(a.tamanho ? `${a.nome} ${a.tamanho}` : a.nome)
+      const rb = recencia.get(b.tamanho ? `${b.nome} ${b.tamanho}` : b.nome)
+      if (ra && rb) return ra < rb ? 1 : ra > rb ? -1 : 0
+      if (ra) return -1
+      if (rb) return 1
+      return (a.ordem ?? 0) - (b.ordem ?? 0)
     })
-    return arr
-  }, [cervejas, recentes])
+  }, [cervejas, consumos])
 
-  const q = buscaProd.trim().toLowerCase()
-  const gruposVis = q
-    ? grupos.filter((g) => g.nome.toLowerCase().includes(q))
-    : grupos
+  const q = normalizar(buscaProd)
+  const filtrados = q
+    ? ordenados.filter(
+        (c) => normalizar(c.nome).includes(q) || normalizar(reprDe(c)).includes(q)
+      )
+    : ordenados
+  const expandido = !!q || mostrarTodos
+  const visiveis = expandido ? filtrados : filtrados.slice(0, 3)
 
   return (
     <div className="overlay">
@@ -510,58 +507,41 @@ function Detalhe({ cliente, cervejas, consumos, resumo, onAdd, onRemove, onFecha
         </div>
 
         <div className="lista-prod">
-          {gruposVis.length === 0 && (
+          {filtrados.length === 0 && (
             <p className="vazio">
               {q
                 ? 'Nenhum produto encontrado.'
                 : 'Nenhum produto cadastrado. Vá em "Produtos".'}
             </p>
           )}
-          {gruposVis.map((g) => {
-            const cor = corDe(g.nome, g.cor)
-            const destaque = recentes[0] === g.nome
-            const latao = g.variantes.find((v) => v.tamanho === 'Latão')
-            const lata = g.variantes.find((v) => v.tamanho === 'Lata')
-            const semTam = g.variantes.find((v) => !v.tamanho)
-            const extras = g.variantes.filter(
-              (v) => v.tamanho && v.tamanho !== 'Lata' && v.tamanho !== 'Latão'
-            )
-            // clássico = só Lata/Latão/sem tamanho → card bonito com nome no meio
-            const classico = extras.length === 0
-            const dir = lata || semTam // lado direito no modo clássico
-            const btn = (v) => (
-              <button key={v.id} className="rp-side" onClick={() => tocar(v)}>
-                {v.tamanho && <span className="rp-tam">{v.tamanho}</span>}
-                <span className="rp-preco">{money(v.preco)}</span>
+          {visiveis.map((c) => {
+            const cor = corDe(c.nome, c.cor)
+            return (
+              <button
+                key={c.id}
+                className={'prod-card' + (ultimoTocado === c.id ? ' destaque' : '')}
+                style={{ background: cor.bg, color: cor.fg }}
+                onClick={() => tocar(c)}
+              >
+                <span className="pc-nome">{c.nome}</span>
+                <span className="pc-info">
+                  {c.tamanho && <span className="pc-tam">{c.tamanho}</span>}
+                  <span className="pc-preco">{money(c.preco)}</span>
+                </span>
               </button>
             )
-            return (
-              <div
-                key={g.nome}
-                className={
-                  'row-prod' +
-                  (destaque ? ' destaque' : '') +
-                  (classico ? '' : ' row-multi')
-                }
-                style={{ background: cor.bg, color: cor.fg }}
-              >
-                {classico ? (
-                  <>
-                    {latao && btn(latao)}
-                    <div className="rp-nome">{g.nome}</div>
-                    {dir && btn(dir)}
-                  </>
-                ) : (
-                  <>
-                    <div className="rp-nome">{g.nome}</div>
-                    <div className="rp-botoes">
-                      {[latao, lata, ...extras, semTam].filter(Boolean).map(btn)}
-                    </div>
-                  </>
-                )}
-              </div>
-            )
           })}
+
+          {!expandido && filtrados.length > 3 && (
+            <button className="ver-mais" onClick={() => setMostrarTodos(true)}>
+              Ver mais produtos ({filtrados.length - 3}) ▾
+            </button>
+          )}
+          {mostrarTodos && !q && filtrados.length > 3 && (
+            <button className="ver-mais" onClick={() => setMostrarTodos(false)}>
+              Ver menos ▴
+            </button>
+          )}
         </div>
 
         <div className="historico">
