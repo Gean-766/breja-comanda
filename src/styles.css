@@ -538,6 +538,16 @@ body {
   flex: 1;
   max-width: 120px;
 }
+.preco-tam {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.preco-tam-lbl {
+  font-size: 16px;
+  font-weight: 800;
+  min-width: 130px;
+}
 .form-linha .btn-grande {
   flex: 1;
 }

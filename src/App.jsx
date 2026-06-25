@@ -375,8 +375,11 @@ function Detalhe({ cliente, cervejas, consumos, resumo, onAdd, onRemove, onFecha
 
 function AbaCervejas({ cervejas, setCervejas, recarregar }) {
   const [nome, setNome] = useState('')
-  const [tamanho, setTamanho] = useState('')
-  const [preco, setPreco] = useState('')
+  const [selLata, setSelLata] = useState(false)
+  const [selLatao, setSelLatao] = useState(false)
+  const [precoLata, setPrecoLata] = useState('')
+  const [precoLatao, setPrecoLatao] = useState('')
+  const [precoSem, setPrecoSem] = useState('')
 
   async function salvarPreco(id, valor) {
     const v = Number(String(valor).replace(',', '.')) || 0
@@ -387,17 +390,23 @@ function AbaCervejas({ cervejas, setCervejas, recarregar }) {
   async function adicionar() {
     const n = nome.trim()
     if (!n) return
-    const v = Number(String(preco).replace(',', '.')) || 0
-    const ordem = cervejas.length
-    const { data } = await supabase
-      .from('cervejas')
-      .insert({ nome: n, tamanho, preco: v, ordem })
-      .select()
-      .single()
-    if (data) setCervejas((cs) => [...cs, data])
+    const parse = (p) => Number(String(p).replace(',', '.')) || 0
+    const novos = []
+    if (selLatao) novos.push({ nome: n, tamanho: 'Latão', preco: parse(precoLatao) })
+    if (selLata) novos.push({ nome: n, tamanho: 'Lata', preco: parse(precoLata) })
+    if (!selLata && !selLatao)
+      novos.push({ nome: n, tamanho: '', preco: parse(precoSem) })
+
+    const base = cervejas.length
+    const comOrdem = novos.map((x, i) => ({ ...x, ordem: base + i }))
+    const { data } = await supabase.from('cervejas').insert(comOrdem).select()
+    if (data) setCervejas((cs) => [...cs, ...data])
     setNome('')
-    setTamanho('')
-    setPreco('')
+    setSelLata(false)
+    setSelLatao(false)
+    setPrecoLata('')
+    setPrecoLatao('')
+    setPrecoSem('')
   }
 
   async function remover(id) {
@@ -405,8 +414,6 @@ function AbaCervejas({ cervejas, setCervejas, recarregar }) {
     await supabase.from('cervejas').update({ ativo: false }).eq('id', id)
     setCervejas((cs) => cs.filter((c) => c.id !== id))
   }
-
-  const escolherTam = (t) => setTamanho((atual) => (atual === t ? '' : t))
 
   return (
     <main className="conteudo">
@@ -440,40 +447,73 @@ function AbaCervejas({ cervejas, setCervejas, recarregar }) {
       <div className="form-produto">
         <input
           className="campo"
-          placeholder="Nome (ex: Heineken, Água, Refri)"
+          placeholder="Marca (ex: Original, Heineken, Água)"
           value={nome}
           onChange={(e) => setNome(e.target.value)}
         />
         <div className="tam-pick">
-          <span className="tam-label">Tamanho:</span>
+          <span className="tam-label">Tem no estoque:</span>
           <button
-            className={tamanho === 'Lata' ? 'tam on' : 'tam'}
-            onClick={() => escolherTam('Lata')}
+            className={selLata ? 'tam on' : 'tam'}
+            onClick={() => setSelLata((v) => !v)}
           >
-            Lata
+            {selLata ? '✓ ' : ''}Lata
           </button>
           <button
-            className={tamanho === 'Latão' ? 'tam on' : 'tam'}
-            onClick={() => escolherTam('Latão')}
+            className={selLatao ? 'tam on' : 'tam'}
+            onClick={() => setSelLatao((v) => !v)}
           >
-            Latão
+            {selLatao ? '✓ ' : ''}Latão
           </button>
-          <span className="tam-dica">(deixe vazio p/ água, refri…)</span>
+          <span className="tam-dica">(marque os 2 se tiver; nenhum p/ água, refri…)</span>
         </div>
-        <div className="form-linha">
-          <input
-            className="campo campo-preco-novo"
-            placeholder="Preço"
-            type="number"
-            step="0.50"
-            inputMode="decimal"
-            value={preco}
-            onChange={(e) => setPreco(e.target.value)}
-          />
-          <button className="btn-grande" onClick={adicionar}>
-            + Add produto
-          </button>
-        </div>
+
+        {selLatao && (
+          <div className="preco-tam">
+            <span className="preco-tam-lbl">🍺 Latão — R$</span>
+            <input
+              className="campo campo-preco-novo"
+              placeholder="0,00"
+              type="number"
+              step="0.50"
+              inputMode="decimal"
+              value={precoLatao}
+              onChange={(e) => setPrecoLatao(e.target.value)}
+            />
+          </div>
+        )}
+        {selLata && (
+          <div className="preco-tam">
+            <span className="preco-tam-lbl">🥫 Lata — R$</span>
+            <input
+              className="campo campo-preco-novo"
+              placeholder="0,00"
+              type="number"
+              step="0.50"
+              inputMode="decimal"
+              value={precoLata}
+              onChange={(e) => setPrecoLata(e.target.value)}
+            />
+          </div>
+        )}
+        {!selLata && !selLatao && (
+          <div className="preco-tam">
+            <span className="preco-tam-lbl">Preço — R$</span>
+            <input
+              className="campo campo-preco-novo"
+              placeholder="0,00"
+              type="number"
+              step="0.50"
+              inputMode="decimal"
+              value={precoSem}
+              onChange={(e) => setPrecoSem(e.target.value)}
+            />
+          </div>
+        )}
+
+        <button className="btn-grande" onClick={adicionar}>
+          + Add produto
+        </button>
       </div>
     </main>
   )
