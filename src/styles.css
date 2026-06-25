@@ -28,14 +28,17 @@ body {
   font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
 }
 
-/* feedback de toque forte em TODOS os botões (bar = muita distração) */
+/* feedback de toque forte em TODOS os botões (bar = muita distração).
+   A curva com "repique" (cubic-bezier > 1) faz o botão dar aquele pulinho
+   ao soltar — mesma sensação satisfatória do card de produto. */
 button {
   cursor: pointer;
-  transition: transform 0.08s ease, filter 0.08s ease, box-shadow 0.08s ease;
+  transition: transform 0.16s cubic-bezier(0.34, 1.56, 0.64, 1),
+    filter 0.1s ease, box-shadow 0.1s ease;
 }
 button:active {
-  transform: scale(0.92);
-  filter: brightness(1.18);
+  transform: scale(0.9);
+  filter: brightness(1.2);
 }
 
 .app {
