@@ -236,10 +236,12 @@ const ORDEM_TAM = { Lata: 0, Latão: 1 }
 function Detalhe({ cliente, cervejas, consumos, resumo, onAdd, onRemove, onFechar, onExcluir, onVoltar }) {
   const [qtd, setQtd] = useState(1)
   const [recentes, setRecentes] = useState([]) // nomes usados, mais recente primeiro
+  const [buscaProd, setBuscaProd] = useState('')
 
   function tocar(cv) {
     onAdd(cliente.id, cv, qtd)
     setQtd(1)
+    setBuscaProd('') // ao selecionar, limpa a busca; o produto sobe pro topo
     setRecentes((r) => [cv.nome, ...r.filter((n) => n !== cv.nome)])
   }
 
@@ -269,6 +271,11 @@ function Detalhe({ cliente, cervejas, consumos, resumo, onAdd, onRemove, onFecha
     })
     return arr
   }, [cervejas, recentes])
+
+  const q = buscaProd.trim().toLowerCase()
+  const gruposVis = q
+    ? grupos.filter((g) => g.nome.toLowerCase().includes(q))
+    : grupos
 
   return (
     <div className="overlay">
@@ -302,33 +309,69 @@ function Detalhe({ cliente, cervejas, consumos, resumo, onAdd, onRemove, onFecha
           <button onClick={() => setQtd((q) => q + 1)}>+</button>
         </div>
 
+        <div className="busca-wrap busca-prod">
+          <input
+            className="campo busca"
+            placeholder="🔎 Procurar produto…"
+            value={buscaProd}
+            onChange={(e) => setBuscaProd(e.target.value)}
+          />
+          {buscaProd && (
+            <button
+              className="busca-x"
+              onClick={() => setBuscaProd('')}
+              aria-label="Limpar busca"
+            >
+              ✕
+            </button>
+          )}
+        </div>
+
         <div className="lista-prod">
-          {grupos.map((g) => {
+          {gruposVis.length === 0 && (
+            <p className="vazio">Nenhum produto encontrado.</p>
+          )}
+          {gruposVis.map((g) => {
             const cor = corCerveja(g.nome)
             const destaque = recentes[0] === g.nome
             const latao = g.variantes.find((v) => v.tamanho === 'Latão')
             const lata = g.variantes.find((v) => v.tamanho === 'Lata')
-            const dir = lata || g.variantes.find((v) => !v.tamanho) // lado direito
+            const semTam = g.variantes.find((v) => !v.tamanho)
+            const extras = g.variantes.filter(
+              (v) => v.tamanho && v.tamanho !== 'Lata' && v.tamanho !== 'Latão'
+            )
+            // clássico = só Lata/Latão/sem tamanho → card bonito com nome no meio
+            const classico = extras.length === 0
+            const dir = lata || semTam // lado direito no modo clássico
+            const btn = (v) => (
+              <button key={v.id} className="rp-side" onClick={() => tocar(v)}>
+                {v.tamanho && <span className="rp-tam">{v.tamanho}</span>}
+                <span className="rp-preco">{money(v.preco)}</span>
+              </button>
+            )
             return (
               <div
                 key={g.nome}
-                className={'row-prod' + (destaque ? ' destaque' : '')}
+                className={
+                  'row-prod' +
+                  (destaque ? ' destaque' : '') +
+                  (classico ? '' : ' row-multi')
+                }
                 style={{ background: cor.bg, color: cor.fg }}
               >
-                {latao && (
-                  <button className="rp-side" onClick={() => tocar(latao)}>
-                    <span className="rp-tam">Latão</span>
-                    <span className="rp-preco">{money(latao.preco)}</span>
-                  </button>
-                )}
-
-                <div className="rp-nome">{g.nome}</div>
-
-                {dir && (
-                  <button className="rp-side" onClick={() => tocar(dir)}>
-                    {dir.tamanho && <span className="rp-tam">{dir.tamanho}</span>}
-                    <span className="rp-preco">{money(dir.preco)}</span>
-                  </button>
+                {classico ? (
+                  <>
+                    {latao && btn(latao)}
+                    <div className="rp-nome">{g.nome}</div>
+                    {dir && btn(dir)}
+                  </>
+                ) : (
+                  <>
+                    <div className="rp-nome">{g.nome}</div>
+                    <div className="rp-botoes">
+                      {[latao, lata, ...extras, semTam].filter(Boolean).map(btn)}
+                    </div>
+                  </>
                 )}
               </div>
             )
@@ -380,6 +423,12 @@ function AbaCervejas({ cervejas, setCervejas, recarregar }) {
   const [precoLata, setPrecoLata] = useState('')
   const [precoLatao, setPrecoLatao] = useState('')
   const [precoSem, setPrecoSem] = useState('')
+  const [extras, setExtras] = useState([]) // [{ tam, preco }]
+
+  const addExtra = (tam = '') => setExtras((e) => [...e, { tam, preco: '' }])
+  const setExtra = (i, campo, val) =>
+    setExtras((e) => e.map((x, j) => (j === i ? { ...x, [campo]: val } : x)))
+  const remExtra = (i) => setExtras((e) => e.filter((_, j) => j !== i))
 
   async function salvarPreco(id, valor) {
     const v = Number(String(valor).replace(',', '.')) || 0
@@ -391,10 +440,13 @@ function AbaCervejas({ cervejas, setCervejas, recarregar }) {
     const n = nome.trim()
     if (!n) return
     const parse = (p) => Number(String(p).replace(',', '.')) || 0
+    const extrasOk = extras.filter((x) => x.tam.trim())
     const novos = []
     if (selLatao) novos.push({ nome: n, tamanho: 'Latão', preco: parse(precoLatao) })
     if (selLata) novos.push({ nome: n, tamanho: 'Lata', preco: parse(precoLata) })
-    if (!selLata && !selLatao)
+    for (const x of extrasOk)
+      novos.push({ nome: n, tamanho: x.tam.trim(), preco: parse(x.preco) })
+    if (!selLata && !selLatao && extrasOk.length === 0)
       novos.push({ nome: n, tamanho: '', preco: parse(precoSem) })
 
     const base = cervejas.length
@@ -407,6 +459,7 @@ function AbaCervejas({ cervejas, setCervejas, recarregar }) {
     setPrecoLata('')
     setPrecoLatao('')
     setPrecoSem('')
+    setExtras([])
   }
 
   async function remover(id) {
@@ -496,7 +549,7 @@ function AbaCervejas({ cervejas, setCervejas, recarregar }) {
             />
           </div>
         )}
-        {!selLata && !selLatao && (
+        {!selLata && !selLatao && extras.length === 0 && (
           <div className="preco-tam">
             <span className="preco-tam-lbl">Preço — R$</span>
             <input
@@ -510,6 +563,43 @@ function AbaCervejas({ cervejas, setCervejas, recarregar }) {
             />
           </div>
         )}
+
+        <div className="extras-sec">
+          <span className="tam-label">Outros tamanhos (opcional):</span>
+          <div className="chips">
+            {['269ml', '350ml', '473ml', '600ml', '1L', 'Long Neck'].map((s) => (
+              <button key={s} className="chip" onClick={() => addExtra(s)}>
+                + {s}
+              </button>
+            ))}
+            <button className="chip chip-livre" onClick={() => addExtra('')}>
+              + Outro…
+            </button>
+          </div>
+          {extras.map((x, i) => (
+            <div key={i} className="preco-tam extra-row">
+              <input
+                className="campo extra-tam"
+                placeholder="Tamanho (ex: 600ml)"
+                value={x.tam}
+                onChange={(e) => setExtra(i, 'tam', e.target.value)}
+              />
+              <span className="preco-tam-lbl preco-rs">R$</span>
+              <input
+                className="campo campo-preco-novo"
+                placeholder="0,00"
+                type="number"
+                step="0.50"
+                inputMode="decimal"
+                value={x.preco}
+                onChange={(e) => setExtra(i, 'preco', e.target.value)}
+              />
+              <button className="lc-x" onClick={() => remExtra(i)}>
+                ✕
+              </button>
+            </div>
+          ))}
+        </div>
 
         <button className="btn-grande" onClick={adicionar}>
           + Add produto
