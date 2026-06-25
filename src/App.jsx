@@ -94,13 +94,13 @@ export default function App() {
       .subscribe()
 
     // rede de segurança: se o tempo real cair (celular parado/bloqueado),
-    // recarrega ao voltar pro app e a cada 15s enquanto está aberto
+    // recarrega ao voltar pro app e a cada 4s enquanto está aberto
     const aoVoltar = () => {
       if (document.visibilityState === 'visible') carregar()
     }
     document.addEventListener('visibilitychange', aoVoltar)
     window.addEventListener('focus', aoVoltar)
-    const intervalo = setInterval(aoVoltar, 15000)
+    const intervalo = setInterval(aoVoltar, 4000)
 
     return () => {
       clearTimeout(t)
