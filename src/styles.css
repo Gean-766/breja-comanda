@@ -586,6 +586,14 @@ button:active {
   min-width: 130px;
 }
 
+/* sugestão / correção de marca */
+.sug-marca {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: -2px;
+}
+
 /* tamanhos extras no cadastro */
 .extras-sec {
   display: flex;

@@ -338,6 +338,83 @@ const CATEGORIAS = [
 ]
 const rankFmt = (t) => (t === 'Latão' ? 0 : t === 'Lata' ? 1 : 2)
 
+// marcas populares no Brasil — pra autocompletar e corrigir digitação
+const MARCAS_POPULARES = [
+  // cervejas
+  'Skol', 'Brahma', 'Brahma Duplo Malte', 'Antarctica', 'Original', 'Bohemia',
+  'Heineken', 'Amstel', 'Budweiser', 'Stella Artois', 'Spaten', 'Eisenbahn',
+  'Itaipava', 'Petra', 'Devassa', 'Kaiser', 'Schin', 'Nova Schin', 'Serramalte',
+  'Bavária', 'Corona', 'Becks', 'Patagonia', 'Império', 'Colorado', 'Praya',
+  'Sol', 'Caracu', 'Polar', 'Therezópolis', 'Baden Baden', 'Lokal',
+  // refrigerantes
+  'Coca-Cola', 'Coca-Cola Zero', 'Guaraná Antarctica', 'Fanta', 'Fanta Laranja',
+  'Fanta Uva', 'Sprite', 'Pepsi', 'Kuat', 'Schweppes', 'Dolly', 'Sukita',
+  'H2OH', 'Soda', 'Tubaína',
+  // energéticos
+  'Red Bull', 'Monster', 'TNT', 'Fusion', 'Baly', 'Red Horse', 'Burn',
+  // água
+  'Água', 'Bonafont', 'Indaiá', 'Minalba', 'Crystal',
+  // ice / outros de distribuidora
+  'Smirnoff Ice', 'Skol Beats', '51 Ice', 'Ypióca', '51', 'Velho Barreiro',
+]
+
+const normalizar = (s) =>
+  (s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').trim()
+
+// distância de edição (Levenshtein) — mede quão "perto" duas palavras estão
+function levenshtein(a, b) {
+  const m = a.length
+  const n = b.length
+  if (!m) return n
+  if (!n) return m
+  const dp = Array.from({ length: n + 1 }, (_, i) => i)
+  for (let i = 1; i <= m; i++) {
+    let prev = dp[0]
+    dp[0] = i
+    for (let j = 1; j <= n; j++) {
+      const tmp = dp[j]
+      dp[j] = Math.min(
+        dp[j] + 1,
+        dp[j - 1] + 1,
+        prev + (a[i - 1] === b[j - 1] ? 0 : 1)
+      )
+      prev = tmp
+    }
+  }
+  return dp[n]
+}
+
+// sugere marcas: autocomplete (começa/contém) ou correção de digitação (perto)
+function sugerirMarcas(texto) {
+  const qn = normalizar(texto)
+  if (qn.length < 2) return null
+  if (MARCAS_POPULARES.some((m) => normalizar(m) === qn)) return null // já exato
+  const scored = []
+  for (const m of MARCAS_POPULARES) {
+    const mn = normalizar(m)
+    let score
+    let tipo
+    if (mn.startsWith(qn)) {
+      score = 0
+      tipo = 'auto'
+    } else if (mn.includes(qn)) {
+      score = 1
+      tipo = 'auto'
+    } else {
+      const d = levenshtein(qn, mn)
+      if (d <= 2 && Math.abs(mn.length - qn.length) <= 3) {
+        score = 2 + d
+        tipo = 'correcao'
+      } else continue
+    }
+    scored.push({ m, score, tipo })
+  }
+  if (!scored.length) return null
+  scored.sort((a, b) => a.score - b.score)
+  const top = scored.slice(0, 5)
+  return { nomes: top.map((s) => s.m), correcao: top.every((s) => s.tipo === 'correcao') }
+}
+
 function Detalhe({ cliente, cervejas, consumos, resumo, onAdd, onRemove, onFechar, onExcluir, onVoltar }) {
   const [qtd, setQtd] = useState(1)
   const [recentes, setRecentes] = useState([]) // nomes usados, mais recente primeiro
@@ -565,6 +642,8 @@ function AbaCervejas({ cervejas, setCervejas, onErro }) {
     return [...map.entries()]
   }, [cervejas])
 
+  const sugMarca = useMemo(() => sugerirMarcas(nome), [nome])
+
   async function salvarPreco(id, valor) {
     const v = Number(String(valor).replace(',', '.')) || 0
     const { error } = await supabase.from('cervejas').update({ preco: v }).eq('id', id)
@@ -697,6 +776,20 @@ function AbaCervejas({ cervejas, setCervejas, onErro }) {
           value={nome}
           onChange={(e) => setNome(e.target.value)}
         />
+        {sugMarca && (
+          <div className="sug-marca">
+            <span className="tam-label">
+              {sugMarca.correcao ? '🤔 Você quis dizer?' : 'Sugestões:'}
+            </span>
+            <div className="chips">
+              {sugMarca.nomes.map((m) => (
+                <button key={m} className="chip" onClick={() => setNome(m)}>
+                  {m}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
         <div className="tam-pick">
           <span className="tam-label">É o quê?</span>
           {CATEGORIAS.map((c) => (
