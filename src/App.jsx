@@ -435,6 +435,7 @@ function Detalhe({ cliente, cervejas, consumos, resumo, onAdd, onRemove, onFecha
   const [buscaProd, setBuscaProd] = useState('')
   const [mostrarTodos, setMostrarTodos] = useState(false)
   const [ultimoTocado, setUltimoTocado] = useState(null) // só p/ a animação
+  const [mostrarResumo, setMostrarResumo] = useState(false)
 
   const reprDe = (c) => (c.tamanho ? `${c.nome} ${c.tamanho}` : c.nome)
 
@@ -477,6 +478,19 @@ function Detalhe({ cliente, cervejas, consumos, resumo, onAdd, onRemove, onFecha
     [cervejas]
   )
   const sugBusca = filtrados.length === 0 ? sugerir(buscaProd, nomesProdutos) : null
+
+  // resumo de fechamento: agrupa o consumo por produto (qtd total e valor total)
+  const resumoItens = useMemo(() => {
+    const map = new Map()
+    for (const co of consumos) {
+      if (!map.has(co.beer_nome))
+        map.set(co.beer_nome, { nome: co.beer_nome, qtd: 0, total: 0 })
+      const it = map.get(co.beer_nome)
+      it.qtd += co.quantidade
+      it.total += Number(co.preco_unit) * co.quantidade
+    }
+    return [...map.values()].sort((a, b) => b.qtd - a.qtd)
+  }, [consumos])
 
   return (
     <div className="overlay">
@@ -601,9 +615,18 @@ function Detalhe({ cliente, cervejas, consumos, resumo, onAdd, onRemove, onFecha
         </div>
 
         <footer className="det-rodape">
-          <div className="total-grande">
-            <span>{resumo.qtd} itens</span>
-            <strong>{money(resumo.total)}</strong>
+          <div className="rodape-top">
+            <div className="total-grande">
+              <span className="tg-itens">{resumo.qtd} produtos consumidos</span>
+              <strong>{money(resumo.total)}</strong>
+            </div>
+            <button
+              className="btn-resumo"
+              onClick={() => setMostrarResumo(true)}
+              disabled={resumo.qtd === 0}
+            >
+              📋 Resumo
+            </button>
           </div>
           <button
             className="btn-pagar"
@@ -616,6 +639,33 @@ function Detalhe({ cliente, cervejas, consumos, resumo, onAdd, onRemove, onFecha
           </button>
         </footer>
       </div>
+
+      {mostrarResumo && (
+        <div className="resumo-overlay" onClick={() => setMostrarResumo(false)}>
+          <div className="resumo-box" onClick={(e) => e.stopPropagation()}>
+            <h3 className="resumo-titulo">📋 Resumo — {cliente.nome}</h3>
+            <div className="resumo-lista">
+              {resumoItens.map((it) => (
+                <div key={it.nome} className="resumo-item">
+                  <span className="ri-qtd">{it.qtd}×</span>
+                  <span className="ri-nome">{it.nome}</span>
+                  <span className="ri-total">{money(it.total)}</span>
+                </div>
+              ))}
+            </div>
+            <div className="resumo-total">
+              <span>{resumo.qtd} produtos</span>
+              <strong>{money(resumo.total)}</strong>
+            </div>
+            <button
+              className="btn-fechar-resumo"
+              onClick={() => setMostrarResumo(false)}
+            >
+              Fechar
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
