@@ -347,9 +347,9 @@ body {
   font-size: 22px;
   font-weight: 900;
   padding: 8px 6px;
-  background: rgba(0, 0, 0, 0.3);
-  border-left: 3px solid rgba(0, 0, 0, 0.38);
-  border-right: 3px solid rgba(0, 0, 0, 0.38);
+  background: rgba(0, 0, 0, 0.12);
+  border-left: 2px solid rgba(255, 255, 255, 0.22);
+  border-right: 2px solid rgba(255, 255, 255, 0.22);
 }
 .rp-tam {
   font-size: 13px;
@@ -547,6 +547,12 @@ body {
   font-size: 16px;
   font-weight: 800;
   min-width: 130px;
+}
+.form-produto .btn-grande {
+  width: 100%;
+  padding: 16px 20px;
+  font-size: 20px;
+  margin-top: 4px;
 }
 .form-linha .btn-grande {
   flex: 1;
