@@ -640,3 +640,127 @@ input[type='number']::-webkit-inner-spin-button {
 input[type='number'] {
   -moz-appearance: textfield;
 }
+
+/* lista de preços agrupada por marca */
+.grupo-preco {
+  background: var(--card);
+  border-radius: 12px;
+  overflow: hidden;
+}
+.gp-cabec {
+  font-size: 18px;
+  font-weight: 900;
+  padding: 10px 14px;
+}
+.grupo-preco .linha-cerveja {
+  border-radius: 0;
+  background: transparent;
+  border-bottom: 1px solid var(--card2);
+}
+.grupo-preco .linha-cerveja:last-child {
+  border-bottom: none;
+}
+.lc-edit {
+  width: 36px;
+  height: 36px;
+  border: none;
+  border-radius: 8px;
+  background: var(--card2);
+  font-size: 15px;
+}
+.editando {
+  gap: 6px;
+}
+.edit-campo {
+  flex: 1;
+  min-width: 0;
+  padding: 10px;
+  font-size: 15px;
+}
+.btn-mini {
+  width: 40px;
+  height: 40px;
+  border: none;
+  border-radius: 8px;
+  background: var(--card2);
+  color: var(--text);
+  font-size: 18px;
+  font-weight: 800;
+}
+.btn-mini.ok {
+  background: var(--accent2);
+  color: #06210f;
+}
+
+/* escolher cor do card */
+.cor-sec {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.cores {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.swatch {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  border: 3px solid transparent;
+}
+.swatch.on {
+  border-color: var(--text);
+}
+.swatch-auto {
+  background: var(--card);
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  width: auto;
+  padding: 0 12px;
+}
+
+/* aviso flutuante (toast) com botão de desfazer */
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: 22px;
+  transform: translateX(-50%);
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  max-width: 92vw;
+  padding: 14px 18px;
+  border-radius: 14px;
+  background: #2b2b3a;
+  color: var(--text);
+  font-size: 16px;
+  font-weight: 600;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  animation: toast-in 0.2s ease;
+}
+.toast-erro {
+  background: #5a1f1a;
+}
+.toast-acao {
+  border: none;
+  border-radius: 10px;
+  background: var(--accent2);
+  color: #06210f;
+  font-size: 15px;
+  font-weight: 800;
+  padding: 10px 14px;
+  white-space: nowrap;
+}
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 12px);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+}
