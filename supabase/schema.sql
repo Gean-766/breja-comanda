@@ -56,3 +56,16 @@ insert into cervejas (nome, tamanho, preco, ordem) values
   ('Heineken',  'Lata', 8.00, 2),
   ('Spaten',    'Lata', 7.00, 3),
   ('Antarctica','Lata', 5.00, 4);
+
+-- ============================================================
+-- 6) ATUALIZAÇÃO (rode isto uma vez no SQL Editor):
+--    - coluna de cor do card  - tempo real entre celulares
+-- ============================================================
+alter table cervejas add column if not exists cor text;
+
+do $$
+begin
+  begin alter publication supabase_realtime add table cervejas; exception when others then null; end;
+  begin alter publication supabase_realtime add table clientes; exception when others then null; end;
+  begin alter publication supabase_realtime add table consumos; exception when others then null; end;
+end $$;
