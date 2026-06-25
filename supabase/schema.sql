@@ -63,9 +63,6 @@ insert into cervejas (nome, tamanho, preco, ordem) values
 -- ============================================================
 alter table cervejas add column if not exists cor text;
 
-do $$
-begin
-  begin alter publication supabase_realtime add table cervejas; exception when others then null; end;
-  begin alter publication supabase_realtime add table clientes; exception when others then null; end;
-  begin alter publication supabase_realtime add table consumos; exception when others then null; end;
-end $$;
+-- Tempo real entre celulares: recria a publicação com as 3 tabelas (garantido).
+drop publication if exists supabase_realtime;
+create publication supabase_realtime for table clientes, consumos, cervejas;
