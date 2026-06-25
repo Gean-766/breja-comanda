@@ -238,6 +238,7 @@ const ORDEM_TAM = { Lata: 0, Latão: 1 }
 const CATEGORIAS = [
   { id: 'cerveja', label: '🍺 Cerveja', formatos: ['Lata', 'Latão', 'Long Neck', 'Garrafa 600ml', 'Litrão 1L'] },
   { id: 'refri', label: '🥤 Refri', formatos: ['Lata', 'Garrafa 600ml', '1L', '1,5L', '2L'] },
+  { id: 'energetico', label: '⚡ Energético', formatos: ['Lata 250ml', 'Lata 269ml', 'Lata 473ml', '1L', '2L'] },
   { id: 'agua', label: '💧 Água', formatos: ['Copo 300ml', 'Garrafa 500ml', 'Garrafa 1,5L'] },
   { id: 'outro', label: '➕ Outro', formatos: [] },
 ]
