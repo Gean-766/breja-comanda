@@ -339,7 +339,11 @@ function Detalhe({ cliente, cervejas, consumos, resumo, onAdd, onRemove, onFecha
 
         <div className="lista-prod">
           {gruposVis.length === 0 && (
-            <p className="vazio">Nenhum produto encontrado.</p>
+            <p className="vazio">
+              {q
+                ? 'Nenhum produto encontrado.'
+                : 'Nenhum produto cadastrado. Vá em "Produtos".'}
+            </p>
           )}
           {gruposVis.map((g) => {
             const cor = corCerveja(g.nome)
@@ -472,7 +476,7 @@ function AbaCervejas({ cervejas, setCervejas, recarregar }) {
       novos.push({ nome: n, tamanho: x.tam.trim(), preco: parse(x.preco) })
     if (novos.length === 0) novos.push({ nome: n, tamanho: '', preco: 0 })
 
-    const base = cervejas.length
+    const base = cervejas.reduce((m, c) => Math.max(m, c.ordem ?? 0), 0) + 1
     const comOrdem = novos.map((x, i) => ({ ...x, ordem: base + i }))
     const { data } = await supabase.from('cervejas').insert(comOrdem).select()
     if (data) setCervejas((cs) => [...cs, ...data])
