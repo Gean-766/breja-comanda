@@ -337,9 +337,6 @@ body {
   background: rgba(0, 0, 0, 0.34);
   transform: scale(0.98);
 }
-.rp-empty {
-  background: rgba(0, 0, 0, 0.08);
-}
 .rp-nome {
   width: 36%;
   min-width: 112px;
