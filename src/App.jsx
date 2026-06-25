@@ -343,7 +343,7 @@ const ORDEM_TAM = { Lata: 0, Latão: 1 }
 // categorias do cadastro: cada uma filtra os formatos que fazem sentido.
 // "Lata"/"Latão" são exatos de propósito (disparam o card Latão | Nome | Lata).
 const CATEGORIAS = [
-  { id: 'cerveja', label: '🍺 Cerveja', formatos: ['Lata', 'Latão', 'Long Neck', 'Garrafa 600ml', 'Litrão 1L'] },
+  { id: 'cerveja', label: '🍺 Cerveja', formatos: ['Lata', 'Latão', 'Long Neck', 'Garrafa 600ml', 'Litrão 1L', 'Caixa', 'Engradado 300ml', 'Engradado 600ml'] },
   { id: 'refri', label: '🥤 Refri', formatos: ['Lata', 'Garrafa 600ml', '1L', '1,5L', '2L'] },
   { id: 'energetico', label: '⚡ Energético', formatos: ['Lata 250ml', 'Lata 269ml', 'Lata 473ml', '1L', '2L'] },
   { id: 'agua', label: '💧 Água', formatos: ['Copo 300ml', 'Garrafa 500ml', 'Garrafa 1,5L'] },
