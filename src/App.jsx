@@ -92,8 +92,21 @@ export default function App() {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'clientes' }, recarregar)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'cervejas' }, recarregar)
       .subscribe()
+
+    // rede de segurança: se o tempo real cair (celular parado/bloqueado),
+    // recarrega ao voltar pro app e a cada 15s enquanto está aberto
+    const aoVoltar = () => {
+      if (document.visibilityState === 'visible') carregar()
+    }
+    document.addEventListener('visibilitychange', aoVoltar)
+    window.addEventListener('focus', aoVoltar)
+    const intervalo = setInterval(aoVoltar, 15000)
+
     return () => {
       clearTimeout(t)
+      clearInterval(intervalo)
+      document.removeEventListener('visibilitychange', aoVoltar)
+      window.removeEventListener('focus', aoVoltar)
       supabase.removeChannel(canal)
     }
   }, [])
