@@ -1127,17 +1127,18 @@ function AbaCervejas({ cervejas, setCervejas, onErro, onLog }) {
   )
 }
 
-// ícone e rótulo de cada tipo de movimentação no histórico
+// ícone e cor de cada tipo de movimentação no histórico.
+// "+" (lançar) fica verde e "−" (remover) fica vermelho via classe CSS.
 const HIST_INFO = {
-  abrir_cliente: { icone: '🟢', cls: 'h-abrir' },
-  excluir_cliente: { icone: '🗑️', cls: 'h-excluir' },
-  fechar_cliente: { icone: '✅', cls: 'h-fechar' },
-  lancar_consumo: { icone: '➕', cls: 'h-add' },
-  remover_consumo: { icone: '➖', cls: 'h-rem' },
-  add_produto: { icone: '🆕', cls: 'h-prod' },
-  remover_produto: { icone: '❌', cls: 'h-prod' },
-  editar_produto: { icone: '✏️', cls: 'h-prod' },
-  mudar_preco: { icone: '💲', cls: 'h-prod' },
+  abrir_cliente: { icone: '🟢' },
+  excluir_cliente: { icone: '🗑️' },
+  fechar_cliente: { icone: '✅' },
+  lancar_consumo: { icone: '+', cls: 'hi-add' },
+  remover_consumo: { icone: '−', cls: 'hi-rem' },
+  add_produto: { icone: '🆕' },
+  remover_produto: { icone: '❌' },
+  editar_produto: { icone: '✏️' },
+  mudar_preco: { icone: '💲' },
 }
 
 // descobre a qual comanda (pessoa) uma movimentação pertence.
@@ -1163,7 +1164,7 @@ function LinhaHist({ h, onReverter }) {
   return (
     <div className="hist-linha">
       <div className="hl-row">
-        <span className="hist-icone">{info.icone}</span>
+        <span className={'hist-icone ' + (info.cls || '')}>{info.icone}</span>
         <div className="hist-corpo">
           <span className="hist-desc">{desc}</span>
           <span className="hist-hora">🕐 {hora(h.created_at)}</span>
@@ -1193,9 +1194,10 @@ function LinhaHist({ h, onReverter }) {
 }
 
 function AbaHistorico({ historico, onReverter }) {
-  const [fechados, setFechados] = useState(() => new Set())
+  // blocos começam FECHADOS; guardamos quais foram abertos pelo toque
+  const [abertos, setAbertos] = useState(() => new Set())
   const toggle = (id) =>
-    setFechados((s) => {
+    setAbertos((s) => {
       const n = new Set(s)
       if (n.has(id)) n.delete(id)
       else n.add(id)
@@ -1245,16 +1247,18 @@ function AbaHistorico({ historico, onReverter }) {
 
       {blocos.map((b) => {
         const est = estadoDe(b.itens)
-        const aberto = !fechados.has(b.id)
+        const aberto = abertos.has(b.id)
         return (
-          <div key={b.id} className={'hist-bloco ' + est.cls}>
+          <div key={b.id} className={'hist-bloco ' + est.cls + (aberto ? ' on' : '')}>
             <button className="hist-bloco-cab" onClick={() => toggle(b.id)}>
               <span className="hbc-icone">{est.icone}</span>
-              <span className="hbc-nome">{b.nome || 'Comanda'}</span>
-              <span className="hbc-meta">
-                {b.itens.length} {plural(b.itens.length)} · 🕐 {hora(b.itens[0].created_at)}
-              </span>
-              <span className="hbc-seta">{aberto ? '▾' : '▸'}</span>
+              <div className="hbc-texto">
+                <span className="hbc-nome">{b.nome || 'Comanda'}</span>
+                <span className="hbc-meta">
+                  {b.itens.length} {plural(b.itens.length)} · 🕐 {hora(b.itens[0].created_at)}
+                </span>
+              </div>
+              <span className="hbc-acao">{aberto ? '▾ fechar' : 'abrir ›'}</span>
             </button>
             {aberto && (
               <div className="hist-bloco-itens">
@@ -1269,16 +1273,18 @@ function AbaHistorico({ historico, onReverter }) {
 
       {catalogo.length > 0 &&
         (() => {
-          const aberto = !fechados.has('__cat__')
+          const aberto = abertos.has('__cat__')
           return (
-            <div className="hist-bloco h-prod">
+            <div className={'hist-bloco h-prod' + (aberto ? ' on' : '')}>
               <button className="hist-bloco-cab" onClick={() => toggle('__cat__')}>
                 <span className="hbc-icone">📦</span>
-                <span className="hbc-nome">Produtos / Catálogo</span>
-                <span className="hbc-meta">
-                  {catalogo.length} {plural(catalogo.length)}
-                </span>
-                <span className="hbc-seta">{aberto ? '▾' : '▸'}</span>
+                <div className="hbc-texto">
+                  <span className="hbc-nome">Produtos / Catálogo</span>
+                  <span className="hbc-meta">
+                    {catalogo.length} {plural(catalogo.length)}
+                  </span>
+                </div>
+                <span className="hbc-acao">{aberto ? '▾ fechar' : 'abrir ›'}</span>
               </button>
               {aberto && (
                 <div className="hist-bloco-itens">

@@ -1016,29 +1016,40 @@ input[type='number'] {
   font-size: 22px;
   flex-shrink: 0;
 }
+.hbc-texto {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
 .hbc-nome {
   font-size: 18px;
   font-weight: 800;
-  flex-shrink: 0;
-  max-width: 45%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .hbc-meta {
-  flex: 1;
-  text-align: right;
   font-size: 12px;
   font-weight: 600;
   color: var(--muted);
   white-space: nowrap;
 }
-.hbc-seta {
+.hbc-acao {
   flex-shrink: 0;
-  font-size: 14px;
+  font-size: 13px;
+  font-weight: 800;
+  color: #06210f;
+  background: var(--accent2);
+  border-radius: 999px;
+  padding: 7px 12px;
+  white-space: nowrap;
+}
+/* quando aberto, o botão vira só um "fechar" discreto */
+.hist-bloco.on .hbc-acao {
+  background: var(--card2);
   color: var(--muted);
-  width: 16px;
-  text-align: center;
 }
 
 /* itens dentro do bloco */
@@ -1063,6 +1074,17 @@ input[type='number'] {
   flex-shrink: 0;
   width: 22px;
   text-align: center;
+}
+/* "+" lançou (verde) e "−" removeu (vermelho) */
+.hist-icone.hi-add {
+  color: var(--accent2);
+  font-weight: 900;
+  font-size: 22px;
+}
+.hist-icone.hi-rem {
+  color: var(--danger);
+  font-weight: 900;
+  font-size: 22px;
 }
 .hist-corpo {
   flex: 1;
