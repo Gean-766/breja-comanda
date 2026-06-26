@@ -1140,73 +1140,156 @@ const HIST_INFO = {
   mudar_preco: { icone: '💲', cls: 'h-prod' },
 }
 
-// "Hoje" / "Ontem" / data, pra agrupar o histórico por dia
-function rotuloDia(ts) {
-  const d = new Date(ts)
-  const hoje = new Date()
-  const ontem = new Date()
-  ontem.setDate(hoje.getDate() - 1)
-  const mesmoDia = (a, b) =>
-    a.getDate() === b.getDate() &&
-    a.getMonth() === b.getMonth() &&
-    a.getFullYear() === b.getFullYear()
-  if (mesmoDia(d, hoje)) return 'Hoje'
-  if (mesmoDia(d, ontem)) return 'Ontem'
-  return d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })
+// descobre a qual comanda (pessoa) uma movimentação pertence.
+// id null = movimentação de produto/catálogo (sem pessoa).
+function refCliente(h) {
+  const p = h.payload || {}
+  if (h.tipo === 'lancar_consumo' || h.tipo === 'remover_consumo') {
+    const nome = (h.descricao.split(' — ')[1] || '').trim()
+    return { id: p.consumo?.cliente_id || null, nome }
+  }
+  if (p.cliente) return { id: p.cliente.id || null, nome: p.cliente.nome || '' }
+  return { id: null, nome: '' } // produtos / preço
+}
+
+// uma linha do histórico. A exclusão de comanda mostra, embaixo, os itens
+// que estavam dentro (pra ver o que foi perdido).
+function LinhaHist({ h, onReverter }) {
+  const info = HIST_INFO[h.tipo] || { icone: '•' }
+  const isConsumo = h.tipo === 'lancar_consumo' || h.tipo === 'remover_consumo'
+  // dentro do bloco da pessoa, o "— Nome" é redundante: tira
+  const desc = isConsumo ? h.descricao.split(' — ')[0] : h.descricao
+  const perdidos = h.tipo === 'excluir_cliente' ? h.payload?.consumos || [] : null
+  return (
+    <div className="hist-linha">
+      <div className="hl-row">
+        <span className="hist-icone">{info.icone}</span>
+        <div className="hist-corpo">
+          <span className="hist-desc">{desc}</span>
+          <span className="hist-hora">🕐 {hora(h.created_at)}</span>
+        </div>
+        {h.revertido ? (
+          <span className="hist-feito">desfeito</span>
+        ) : (
+          <button className="hist-undo" onClick={() => onReverter(h)}>
+            ↩ Desfazer
+          </button>
+        )}
+      </div>
+      {perdidos && perdidos.length > 0 && (
+        <ul className="hl-itens">
+          {perdidos.map((c) => (
+            <li key={c.id}>
+              <span>
+                {c.quantidade}× {c.beer_nome}
+              </span>
+              <span className="hli-val">{money(c.preco_unit * c.quantidade)}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )
 }
 
 function AbaHistorico({ historico, onReverter }) {
-  // agrupa por dia ("Hoje", "Ontem") mantendo a ordem (mais recente primeiro)
-  const grupos = useMemo(() => {
-    const out = []
-    let atual = null
+  const [fechados, setFechados] = useState(() => new Set())
+  const toggle = (id) =>
+    setFechados((s) => {
+      const n = new Set(s)
+      if (n.has(id)) n.delete(id)
+      else n.add(id)
+      return n
+    })
+
+  // agrupa por comanda (pessoa). historico já vem do mais recente p/ o mais antigo,
+  // então a ordem dos blocos segue a última atividade de cada comanda.
+  const { blocos, catalogo } = useMemo(() => {
+    const map = new Map()
+    const cat = []
     for (const h of historico) {
-      const dia = rotuloDia(h.created_at)
-      if (!atual || atual.dia !== dia) {
-        atual = { dia, itens: [] }
-        out.push(atual)
+      const r = refCliente(h)
+      if (!r.id) {
+        cat.push(h)
+        continue
       }
-      atual.itens.push(h)
+      if (!map.has(r.id)) map.set(r.id, { id: r.id, nome: '', itens: [] })
+      const b = map.get(r.id)
+      if (!b.nome && r.nome) b.nome = r.nome
+      b.itens.push(h)
     }
-    return out
+    return { blocos: [...map.values()], catalogo: cat }
   }, [historico])
+
+  // ícone/estado do bloco pela ação "mais final" que aconteceu na comanda
+  const estadoDe = (itens) => {
+    if (itens.some((h) => h.tipo === 'excluir_cliente'))
+      return { icone: '🗑️', cls: 'h-excluir' }
+    if (itens.some((h) => h.tipo === 'fechar_cliente'))
+      return { icone: '✅', cls: 'h-fechar' }
+    return { icone: '🟢', cls: 'h-abrir' }
+  }
+  const plural = (n) => (n === 1 ? 'movimentação' : 'movimentações')
 
   return (
     <main className="conteudo">
       <h3 className="sec">Histórico — últimas 24h</h3>
       <p className="hist-aviso">
-        Toda movimentação fica aqui por 24h. Some do app depois disso, mas continua
-        guardada ~30 dias no servidor. Dá pra desfazer o que ainda está na lista.
+        Agrupado por comanda. Toque numa pessoa pra ver/ocultar o que rolou nela.
+        Fica 24h aqui (e ~30 dias guardado no servidor). Dá pra desfazer.
       </p>
 
       {historico.length === 0 && (
         <p className="vazio">Nenhuma movimentação nas últimas 24 horas.</p>
       )}
 
-      {grupos.map((g) => (
-        <div key={g.dia} className="hist-grupo">
-          <div className="hist-dia">{g.dia}</div>
-          {g.itens.map((h) => {
-            const info = HIST_INFO[h.tipo] || { icone: '•', cls: '' }
-            return (
-              <div key={h.id} className={'hist-item ' + info.cls}>
-                <span className="hist-icone">{info.icone}</span>
-                <div className="hist-corpo">
-                  <span className="hist-desc">{h.descricao}</span>
-                  <span className="hist-hora">🕐 {hora(h.created_at)}</span>
-                </div>
-                {h.revertido ? (
-                  <span className="hist-feito">desfeito</span>
-                ) : (
-                  <button className="hist-undo" onClick={() => onReverter(h)}>
-                    ↩ Desfazer
-                  </button>
-                )}
+      {blocos.map((b) => {
+        const est = estadoDe(b.itens)
+        const aberto = !fechados.has(b.id)
+        return (
+          <div key={b.id} className={'hist-bloco ' + est.cls}>
+            <button className="hist-bloco-cab" onClick={() => toggle(b.id)}>
+              <span className="hbc-icone">{est.icone}</span>
+              <span className="hbc-nome">{b.nome || 'Comanda'}</span>
+              <span className="hbc-meta">
+                {b.itens.length} {plural(b.itens.length)} · 🕐 {hora(b.itens[0].created_at)}
+              </span>
+              <span className="hbc-seta">{aberto ? '▾' : '▸'}</span>
+            </button>
+            {aberto && (
+              <div className="hist-bloco-itens">
+                {b.itens.map((h) => (
+                  <LinhaHist key={h.id} h={h} onReverter={onReverter} />
+                ))}
               </div>
-            )
-          })}
-        </div>
-      ))}
+            )}
+          </div>
+        )
+      })}
+
+      {catalogo.length > 0 &&
+        (() => {
+          const aberto = !fechados.has('__cat__')
+          return (
+            <div className="hist-bloco h-prod">
+              <button className="hist-bloco-cab" onClick={() => toggle('__cat__')}>
+                <span className="hbc-icone">📦</span>
+                <span className="hbc-nome">Produtos / Catálogo</span>
+                <span className="hbc-meta">
+                  {catalogo.length} {plural(catalogo.length)}
+                </span>
+                <span className="hbc-seta">{aberto ? '▾' : '▸'}</span>
+              </button>
+              {aberto && (
+                <div className="hist-bloco-itens">
+                  {catalogo.map((h) => (
+                    <LinhaHist key={h.id} h={h} onReverter={onReverter} />
+                  ))}
+                </div>
+              )}
+            </div>
+          )
+        })()}
     </main>
   )
 }
