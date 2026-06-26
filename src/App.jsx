@@ -43,10 +43,11 @@ const PALETA = [
 ]
 
 export default function App() {
-  const [aba, setAba] = useState('comandas') // 'comandas' | 'cervejas'
+  const [aba, setAba] = useState('comandas') // 'comandas' | 'cervejas' | 'historico'
   const [cervejas, setCervejas] = useState([])
   const [clientes, setClientes] = useState([])
   const [consumos, setConsumos] = useState([])
+  const [historico, setHistorico] = useState([])
   const [busca, setBusca] = useState('')
   const [novoNome, setNovoNome] = useState('')
   const [abertoId, setAbertoId] = useState(null) // cliente aberto na tela de detalhe
@@ -66,15 +67,38 @@ export default function App() {
       setCarregando(false)
       return
     }
-    const [c1, c2, c3] = await Promise.all([
+    const desde24h = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
+    const [c1, c2, c3, c4] = await Promise.all([
       supabase.from('cervejas').select('*').eq('ativo', true).order('ordem'),
       supabase.from('clientes').select('*').eq('aberto', true).order('created_at'),
       supabase.from('consumos').select('*').order('created_at', { ascending: false }),
+      supabase
+        .from('historico')
+        .select('*')
+        .gte('created_at', desde24h)
+        .order('created_at', { ascending: false }),
     ])
     setCervejas(c1.data || [])
     setClientes(c2.data || [])
     setConsumos(c3.data || [])
+    setHistorico(c4.data || [])
     setCarregando(false)
+  }
+
+  // grava uma linha no histórico (auditoria + permite desfazer).
+  // "autor" fica null por ora; entra quando houver login dos garçons.
+  async function registrar(tipo, descricao, payload = {}) {
+    try {
+      const { data } = await supabase
+        .from('historico')
+        .insert({ tipo, descricao, payload })
+        .select()
+        .single()
+      return data
+    } catch (_) {
+      /* histórico é secundário: nunca bloqueia a ação principal */
+      return null
+    }
   }
 
   // carga inicial + sincronização em tempo real entre celulares
@@ -91,6 +115,7 @@ export default function App() {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'consumos' }, recarregar)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'clientes' }, recarregar)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'cervejas' }, recarregar)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'historico' }, recarregar)
       .subscribe()
 
     // rede de segurança: se o tempo real cair (celular parado/bloqueado),
@@ -110,6 +135,63 @@ export default function App() {
       supabase.removeChannel(canal)
     }
   }, [])
+
+  // limpeza: o histórico fica 24h no app, mas ~30 dias no banco.
+  // ao abrir o app, apaga o que passou de 30 dias (uma vez).
+  useEffect(() => {
+    if (!isConfigured) return
+    const ha30dias = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()
+    supabase.from('historico').delete().lt('created_at', ha30dias).then(() => {})
+  }, [])
+
+  // desfazer uma movimentação: cada tipo tem sua ação inversa.
+  async function reverter(h) {
+    if (!h || h.revertido) return
+    if (!h._semConfirm && !confirm(`Desfazer: "${h.descricao}"?`)) return
+    const p = h.payload || {}
+    try {
+      if (h.tipo === 'excluir_cliente') {
+        // recria a pessoa (mesmo id) e todo o consumo dela
+        await supabase.from('clientes').insert({
+          id: p.cliente.id,
+          nome: p.cliente.nome,
+          aberto: true,
+          pago_em: null,
+          created_at: p.cliente.created_at,
+        })
+        if (p.consumos?.length) await supabase.from('consumos').insert(p.consumos)
+      } else if (h.tipo === 'abrir_cliente') {
+        await supabase.from('clientes').delete().eq('id', p.cliente.id)
+      } else if (h.tipo === 'fechar_cliente') {
+        await supabase
+          .from('clientes')
+          .update({ aberto: true, pago_em: null })
+          .eq('id', p.cliente.id)
+      } else if (h.tipo === 'lancar_consumo') {
+        await supabase.from('consumos').delete().eq('id', p.consumo.id)
+      } else if (h.tipo === 'remover_consumo') {
+        await supabase.from('consumos').insert(p.consumo)
+      } else if (h.tipo === 'add_produto') {
+        await supabase.from('cervejas').delete().in('id', p.ids || [])
+      } else if (h.tipo === 'remover_produto') {
+        await supabase.from('cervejas').update({ ativo: true }).eq('id', p.produto.id)
+      } else if (h.tipo === 'editar_produto') {
+        await supabase
+          .from('cervejas')
+          .update({ nome: p.antes.nome, tamanho: p.antes.tamanho })
+          .eq('id', p.id)
+      } else if (h.tipo === 'mudar_preco') {
+        await supabase.from('cervejas').update({ preco: p.antes }).eq('id', p.id)
+      } else {
+        return
+      }
+      await supabase.from('historico').update({ revertido: true }).eq('id', h.id)
+      await carregar()
+      mostrarToast('Desfeito ✓', { tipo: 'ok' })
+    } catch (_) {
+      erro('⚠️ Não consegui desfazer. Tente de novo.')
+    }
+  }
 
   // total e quantidade por cliente
   const resumo = useMemo(() => {
@@ -142,6 +224,7 @@ export default function App() {
     setNovoNome('')
     setClientes((cs) => [...cs, data])
     setAbertoId(data.id)
+    registrar('abrir_cliente', `Abriu a comanda de ${nome}`, { cliente: data })
   }
 
   async function adicionarConsumo(cliente_id, cerveja, quantidade) {
@@ -160,6 +243,12 @@ export default function App() {
       return
     }
     setConsumos((cs) => [data, ...cs])
+    const cli = clientes.find((c) => c.id === cliente_id)
+    registrar(
+      'lancar_consumo',
+      `+${quantidade}× ${data.beer_nome}${cli ? ' — ' + cli.nome : ''}`,
+      { consumo: data }
+    )
   }
 
   async function removerConsumo(id) {
@@ -172,6 +261,12 @@ export default function App() {
       return
     }
     if (!item) return
+    const cli = clientes.find((c) => c.id === item.cliente_id)
+    registrar(
+      'remover_consumo',
+      `−${item.quantidade}× ${item.beer_nome}${cli ? ' — ' + cli.nome : ''}`,
+      { consumo: item }
+    )
     mostrarToast('Item removido', {
       acao: {
         label: '↩ Desfazer',
@@ -194,6 +289,8 @@ export default function App() {
   }
 
   async function fecharConta(cliente_id) {
+    const cli = clientes.find((c) => c.id === cliente_id)
+    const r = resumo[cliente_id] || { total: 0, qtd: 0 }
     await supabase
       .from('clientes')
       .update({ aberto: false, pago_em: new Date().toISOString() })
@@ -201,13 +298,34 @@ export default function App() {
     setClientes((cs) => cs.filter((c) => c.id !== cliente_id))
     setAbertoId(null)
     setBusca('')
+    if (cli)
+      registrar(
+        'fechar_cliente',
+        `Fechou/pagou a comanda de ${cli.nome} (${money(r.total)})`,
+        { cliente: cli }
+      )
   }
 
   async function excluirCliente(cliente_id) {
+    // captura tudo ANTES de apagar, pra conseguir restaurar depois
+    const cli = clientes.find((c) => c.id === cliente_id)
+    const cons = consumos.filter((c) => c.cliente_id === cliente_id)
     await supabase.from('clientes').delete().eq('id', cliente_id)
     setClientes((cs) => cs.filter((c) => c.id !== cliente_id))
     setAbertoId(null)
     setBusca('')
+    if (cli) {
+      const h = await registrar(
+        'excluir_cliente',
+        `Excluiu a comanda de ${cli.nome} (${cons.length} lançamento${cons.length === 1 ? '' : 's'})`,
+        { cliente: cli, consumos: cons }
+      )
+      mostrarToast(`${cli.nome} excluído`, {
+        acao: h
+          ? { label: '↩ Desfazer', fn: () => reverter({ ...h, _semConfirm: true }) }
+          : null,
+      })
+    }
   }
 
   if (!isConfigured) return <Aviso />
@@ -237,6 +355,12 @@ export default function App() {
             onClick={() => setAba('cervejas')}
           >
             Produtos
+          </button>
+          <button
+            className={aba === 'historico' ? 'aba on' : 'aba'}
+            onClick={() => setAba('historico')}
+          >
+            Histórico
           </button>
         </nav>
       </header>
@@ -298,7 +422,16 @@ export default function App() {
       )}
 
       {aba === 'cervejas' && (
-        <AbaCervejas cervejas={cervejas} setCervejas={setCervejas} onErro={erro} />
+        <AbaCervejas
+          cervejas={cervejas}
+          setCervejas={setCervejas}
+          onErro={erro}
+          onLog={registrar}
+        />
+      )}
+
+      {aba === 'historico' && (
+        <AbaHistorico historico={historico} onReverter={reverter} />
       )}
 
       {clienteAberto && (
@@ -670,7 +803,7 @@ function Detalhe({ cliente, cervejas, consumos, resumo, onAdd, onRemove, onFecha
   )
 }
 
-function AbaCervejas({ cervejas, setCervejas, onErro }) {
+function AbaCervejas({ cervejas, setCervejas, onErro, onLog }) {
   const [nome, setNome] = useState('')
   const [categoria, setCategoria] = useState('cerveja')
   const [formatos, setFormatos] = useState({}) // { 'Lata': '5,00', 'Latão': '7,00' }
@@ -714,9 +847,16 @@ function AbaCervejas({ cervejas, setCervejas, onErro }) {
 
   async function salvarPreco(id, valor) {
     const v = Number(String(valor).replace(',', '.')) || 0
+    const antigo = cervejas.find((c) => c.id === id)
     const { error } = await supabase.from('cervejas').update({ preco: v }).eq('id', id)
     if (error) return onErro('⚠️ Não salvou o preço. Tente de novo.')
     setCervejas((cs) => cs.map((c) => (c.id === id ? { ...c, preco: v } : c)))
+    if (antigo && Number(antigo.preco) !== v)
+      onLog?.(
+        'mudar_preco',
+        `Preço de ${antigo.nome}${antigo.tamanho ? ' ' + antigo.tamanho : ''}: ${money(antigo.preco)} → ${money(v)}`,
+        { id, antes: Number(antigo.preco), depois: v }
+      )
   }
 
   function abrirEdicao(c) {
@@ -728,6 +868,7 @@ function AbaCervejas({ cervejas, setCervejas, onErro }) {
     const nm = editNome.trim()
     if (!nm) return
     const tam = editTam.trim()
+    const antigo = cervejas.find((c) => c.id === editId)
     const { error } = await supabase
       .from('cervejas')
       .update({ nome: nm, tamanho: tam })
@@ -736,6 +877,16 @@ function AbaCervejas({ cervejas, setCervejas, onErro }) {
     setCervejas((cs) =>
       cs.map((c) => (c.id === editId ? { ...c, nome: nm, tamanho: tam } : c))
     )
+    if (antigo)
+      onLog?.(
+        'editar_produto',
+        `Editou produto: ${antigo.nome}${antigo.tamanho ? ' ' + antigo.tamanho : ''} → ${nm}${tam ? ' ' + tam : ''}`,
+        {
+          id: editId,
+          antes: { nome: antigo.nome, tamanho: antigo.tamanho || '' },
+          depois: { nome: nm, tamanho: tam },
+        }
+      )
     setEditId(null)
   }
 
@@ -766,6 +917,12 @@ function AbaCervejas({ cervejas, setCervejas, onErro }) {
       return onErro('⚠️ Não consegui salvar o produto. Tente de novo.')
     }
     setCervejas((cs) => [...cs, ...res.data])
+    const qf = res.data.length
+    onLog?.(
+      'add_produto',
+      `Adicionou produto: ${n} (${qf} formato${qf === 1 ? '' : 's'})`,
+      { ids: res.data.map((r) => r.id) }
+    )
     setNome('')
     setFormatos({})
     setExtras([])
@@ -774,9 +931,16 @@ function AbaCervejas({ cervejas, setCervejas, onErro }) {
 
   async function remover(id) {
     if (!confirm('Remover este produto da lista?')) return
+    const prod = cervejas.find((c) => c.id === id)
     const { error } = await supabase.from('cervejas').update({ ativo: false }).eq('id', id)
     if (error) return onErro('⚠️ Não consegui remover. Tente de novo.')
     setCervejas((cs) => cs.filter((c) => c.id !== id))
+    if (prod)
+      onLog?.(
+        'remover_produto',
+        `Removeu produto: ${prod.nome}${prod.tamanho ? ' ' + prod.tamanho : ''}`,
+        { produto: prod }
+      )
   }
 
   return (
@@ -959,6 +1123,90 @@ function AbaCervejas({ cervejas, setCervejas, onErro }) {
           + Add produto
         </button>
       </div>
+    </main>
+  )
+}
+
+// ícone e rótulo de cada tipo de movimentação no histórico
+const HIST_INFO = {
+  abrir_cliente: { icone: '🟢', cls: 'h-abrir' },
+  excluir_cliente: { icone: '🗑️', cls: 'h-excluir' },
+  fechar_cliente: { icone: '✅', cls: 'h-fechar' },
+  lancar_consumo: { icone: '➕', cls: 'h-add' },
+  remover_consumo: { icone: '➖', cls: 'h-rem' },
+  add_produto: { icone: '🆕', cls: 'h-prod' },
+  remover_produto: { icone: '❌', cls: 'h-prod' },
+  editar_produto: { icone: '✏️', cls: 'h-prod' },
+  mudar_preco: { icone: '💲', cls: 'h-prod' },
+}
+
+// "Hoje" / "Ontem" / data, pra agrupar o histórico por dia
+function rotuloDia(ts) {
+  const d = new Date(ts)
+  const hoje = new Date()
+  const ontem = new Date()
+  ontem.setDate(hoje.getDate() - 1)
+  const mesmoDia = (a, b) =>
+    a.getDate() === b.getDate() &&
+    a.getMonth() === b.getMonth() &&
+    a.getFullYear() === b.getFullYear()
+  if (mesmoDia(d, hoje)) return 'Hoje'
+  if (mesmoDia(d, ontem)) return 'Ontem'
+  return d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })
+}
+
+function AbaHistorico({ historico, onReverter }) {
+  // agrupa por dia ("Hoje", "Ontem") mantendo a ordem (mais recente primeiro)
+  const grupos = useMemo(() => {
+    const out = []
+    let atual = null
+    for (const h of historico) {
+      const dia = rotuloDia(h.created_at)
+      if (!atual || atual.dia !== dia) {
+        atual = { dia, itens: [] }
+        out.push(atual)
+      }
+      atual.itens.push(h)
+    }
+    return out
+  }, [historico])
+
+  return (
+    <main className="conteudo">
+      <h3 className="sec">Histórico — últimas 24h</h3>
+      <p className="hist-aviso">
+        Toda movimentação fica aqui por 24h. Some do app depois disso, mas continua
+        guardada ~30 dias no servidor. Dá pra desfazer o que ainda está na lista.
+      </p>
+
+      {historico.length === 0 && (
+        <p className="vazio">Nenhuma movimentação nas últimas 24 horas.</p>
+      )}
+
+      {grupos.map((g) => (
+        <div key={g.dia} className="hist-grupo">
+          <div className="hist-dia">{g.dia}</div>
+          {g.itens.map((h) => {
+            const info = HIST_INFO[h.tipo] || { icone: '•', cls: '' }
+            return (
+              <div key={h.id} className={'hist-item ' + info.cls}>
+                <span className="hist-icone">{info.icone}</span>
+                <div className="hist-corpo">
+                  <span className="hist-desc">{h.descricao}</span>
+                  <span className="hist-hora">🕐 {hora(h.created_at)}</span>
+                </div>
+                {h.revertido ? (
+                  <span className="hist-feito">desfeito</span>
+                ) : (
+                  <button className="hist-undo" onClick={() => onReverter(h)}>
+                    ↩ Desfazer
+                  </button>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      ))}
     </main>
   )
 }

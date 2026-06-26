@@ -947,6 +947,9 @@ input[type='number'] {
 .toast-erro {
   background: #5a1f1a;
 }
+.toast-ok {
+  background: #1c4a2c;
+}
 .toast-acao {
   border: none;
   border-radius: 10px;
@@ -966,4 +969,90 @@ input[type='number'] {
     opacity: 1;
     transform: translate(-50%, 0);
   }
+}
+
+/* ===== Aba Histórico ===== */
+.hist-aviso {
+  margin: -4px 0 14px;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--muted);
+}
+.hist-grupo {
+  margin-bottom: 18px;
+}
+.hist-dia {
+  font-size: 13px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--accent);
+  margin: 4px 0 8px;
+}
+.hist-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px;
+  margin-bottom: 8px;
+  background: var(--card);
+  border-radius: 12px;
+  border-left: 4px solid var(--card2);
+}
+.hist-item.h-excluir {
+  border-left-color: var(--danger);
+}
+.hist-item.h-abrir {
+  border-left-color: var(--accent2);
+}
+.hist-item.h-fechar {
+  border-left-color: var(--accent);
+}
+.hist-item.h-add {
+  border-left-color: #3a8fd6;
+}
+.hist-item.h-rem {
+  border-left-color: #b06a2c;
+}
+.hist-icone {
+  font-size: 20px;
+  flex-shrink: 0;
+  width: 24px;
+  text-align: center;
+}
+.hist-corpo {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.hist-desc {
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+.hist-hora {
+  font-size: 13px;
+  color: var(--muted);
+  font-weight: 600;
+}
+.hist-undo {
+  flex-shrink: 0;
+  border: none;
+  border-radius: 10px;
+  background: var(--card2);
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 700;
+  padding: 9px 12px;
+  white-space: nowrap;
+}
+.hist-feito {
+  flex-shrink: 0;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--muted);
+  font-style: italic;
+  padding: 0 6px;
 }

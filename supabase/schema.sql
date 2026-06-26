@@ -66,3 +66,31 @@ alter table cervejas add column if not exists cor text;
 -- Tempo real entre celulares: recria a publicação com as 3 tabelas (garantido).
 drop publication if exists supabase_realtime;
 create publication supabase_realtime for table clientes, consumos, cervejas;
+
+-- ============================================================
+-- 7) HISTÓRICO de movimentações (auditoria + desfazer)
+--    Toda ação (abrir/excluir comanda, lançar/remover item, mexer
+--    em produto/preço) grava uma linha aqui. O app mostra as últimas
+--    24h; o banco guarda ~30 dias (limpeza automática). "payload"
+--    guarda o necessário pra DESFAZER (ex: a pessoa e todo o consumo
+--    dela). "autor" fica pronto pra quando houver login dos garçons.
+--    >> Rode este bloco uma vez no SQL Editor. <<
+-- ============================================================
+create table if not exists historico (
+  id uuid primary key default gen_random_uuid(),
+  tipo text not null,                 -- abrir_cliente, excluir_cliente, etc.
+  descricao text not null,            -- texto legível ("Excluiu a comanda de Alex")
+  payload jsonb not null default '{}',-- dados pra reverter a ação
+  autor text,                         -- quem fez (preenchido quando houver login)
+  revertido boolean not null default false,
+  created_at timestamptz not null default now()
+);
+create index if not exists idx_historico_data on historico(created_at desc);
+
+alter table historico enable row level security;
+drop policy if exists "acesso_livre" on historico;
+create policy "acesso_livre" on historico for all using (true) with check (true);
+
+-- inclui o historico no tempo real
+drop publication if exists supabase_realtime;
+create publication supabase_realtime for table clientes, consumos, cervejas, historico;
