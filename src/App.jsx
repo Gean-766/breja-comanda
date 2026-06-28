@@ -569,6 +569,7 @@ function Detalhe({ cliente, cervejas, consumos, resumo, onAdd, onRemove, onFecha
   const [mostrarTodos, setMostrarTodos] = useState(false)
   const [ultimoTocado, setUltimoTocado] = useState(null) // só p/ a animação
   const [mostrarResumo, setMostrarResumo] = useState(false)
+  const [confirmar, setConfirmar] = useState(null) // produto aguardando confirmação
 
   const reprDe = (c) => (c.tamanho ? `${c.nome} ${c.tamanho}` : c.nome)
 
@@ -706,7 +707,7 @@ function Detalhe({ cliente, cervejas, consumos, resumo, onAdd, onRemove, onFecha
                 key={c.id}
                 className={'prod-card' + (ultimoTocado === c.id ? ' destaque' : '')}
                 style={{ background: cor.bg, color: cor.fg }}
-                onClick={() => tocar(c)}
+                onClick={() => setConfirmar(c)}
               >
                 <span className="pc-nome">{c.nome}</span>
                 <span className="pc-info">
@@ -799,6 +800,39 @@ function Detalhe({ cliente, cervejas, consumos, resumo, onAdd, onRemove, onFecha
           </div>
         </div>
       )}
+
+      {confirmar && (() => {
+        const cor = corDe(confirmar.nome, confirmar.cor)
+        return (
+          <div className="confirm-overlay" onClick={() => setConfirmar(null)}>
+            <div className="confirm-box" onClick={(e) => e.stopPropagation()}>
+              <button
+                className="confirm-x"
+                onClick={() => setConfirmar(null)}
+                aria-label="Cancelar"
+              >
+                ✕
+              </button>
+              <p className="confirm-msg">Clica em OK para confirmar</p>
+              <span
+                className="confirm-prod"
+                style={{ background: cor.bg, color: cor.fg }}
+              >
+                {qtd}× {reprDe(confirmar)}
+              </span>
+              <button
+                className="confirm-ok"
+                onClick={() => {
+                  tocar(confirmar)
+                  setConfirmar(null)
+                }}
+              >
+                OK
+              </button>
+            </div>
+          </div>
+        )
+      })()}
     </div>
   )
 }
