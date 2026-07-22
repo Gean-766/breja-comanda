@@ -37,7 +37,7 @@ export default function Login() {
       <form className="login-caixa" onSubmit={entrar}>
         <div className="login-logo">🍻</div>
         <h1 className="login-titulo">Comanda</h1>
-        <p className="login-sub">Entre com o acesso da sua distribuidora</p>
+        <p className="login-sub">Entre com o acesso do seu negócio</p>
 
         <input
           className="login-campo"

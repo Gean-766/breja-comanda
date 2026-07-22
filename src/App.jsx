@@ -346,7 +346,7 @@ export default function App({ distribuidora = null, onSair = null }) {
           <span className="marca-logo">🍻</span>
           <div className="marca-txt">
             <h1>{distribuidora?.nome || 'BREJA & CIA'}</h1>
-            <span className="marca-sub">Distribuidora · Comanda</span>
+            <span className="marca-sub">Controle de Comandas</span>
           </div>
           {onSair && (
             <button className="btn-sair" onClick={onSair} aria-label="Sair">
