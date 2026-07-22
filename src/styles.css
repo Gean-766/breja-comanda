@@ -66,6 +66,87 @@ button:active {
 }
 
 /* topo */
+/* ===== TELA DE LOGIN / ACESSO BLOQUEADO ===== */
+.login-tela {
+  min-height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: radial-gradient(circle at 50% 0%, #262232, var(--bg) 65%);
+}
+.login-caixa {
+  width: 100%;
+  max-width: 340px;
+  background: var(--card);
+  border: 1px solid var(--card2);
+  border-radius: 22px;
+  padding: 32px 24px 26px;
+  text-align: center;
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.45);
+}
+.login-logo {
+  font-size: 48px;
+  line-height: 1;
+  margin-bottom: 10px;
+  filter: drop-shadow(0 3px 6px rgba(0, 0, 0, 0.5));
+}
+.login-titulo {
+  margin: 0 0 6px;
+  font-size: 26px;
+  font-weight: 900;
+  letter-spacing: 1px;
+  color: var(--accent);
+}
+.login-sub {
+  margin: 0 0 22px;
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+.login-campo {
+  width: 100%;
+  padding: 14px 16px;
+  margin-bottom: 12px;
+  border: 1px solid var(--card2);
+  border-radius: 12px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 16px; /* 16px evita o zoom automático do iPhone */
+  font-family: inherit;
+  outline: none;
+}
+.login-campo:focus {
+  border-color: var(--accent);
+}
+.login-btn {
+  width: 100%;
+  padding: 15px;
+  margin-top: 4px;
+  border: none;
+  border-radius: 12px;
+  background: var(--accent);
+  color: var(--accent-dark);
+  font-size: 16px;
+  font-weight: 900;
+  font-family: inherit;
+}
+.login-btn:disabled {
+  opacity: 0.6;
+}
+.login-erro {
+  margin-top: 12px;
+  color: var(--danger);
+  font-size: 13.5px;
+  font-weight: 700;
+}
+.login-rodape {
+  margin: 18px 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
 .topo {
   position: sticky;
   top: 0;
@@ -79,6 +160,17 @@ button:active {
   align-items: center;
   gap: 12px;
   margin-bottom: 14px;
+}
+.btn-sair {
+  margin-left: auto;
+  background: none;
+  border: 1px solid var(--card2);
+  color: var(--muted);
+  padding: 6px 14px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 700;
+  font-family: inherit;
 }
 .marca-logo {
   font-size: 38px;

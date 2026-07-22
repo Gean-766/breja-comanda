@@ -42,7 +42,11 @@ const PALETA = [
   '#1566c0', '#7b2ff7', '#e0533d', '#0c9c8f', '#555560',
 ]
 
-export default function App() {
+// `distribuidora` e `onSair` vêm do Portao.jsx (quem já passou pelo login).
+// O RLS do banco já isola os dados por distribuidora; os filtros por
+// distribuidora_id aqui embaixo são só uma segunda tranca.
+export default function App({ distribuidora = null, onSair = null }) {
+  const donoId = distribuidora?.id || null
   const [aba, setAba] = useState('comandas') // 'comandas' | 'cervejas' | 'historico'
   const [cervejas, setCervejas] = useState([])
   const [clientes, setClientes] = useState([])
@@ -68,13 +72,13 @@ export default function App() {
       return
     }
     const desde24h = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
+    // só as linhas desta distribuidora
+    const meu = (q) => (donoId ? q.eq('distribuidora_id', donoId) : q)
     const [c1, c2, c3, c4] = await Promise.all([
-      supabase.from('cervejas').select('*').eq('ativo', true).order('ordem'),
-      supabase.from('clientes').select('*').eq('aberto', true).order('created_at'),
-      supabase.from('consumos').select('*').order('created_at', { ascending: false }),
-      supabase
-        .from('historico')
-        .select('*')
+      meu(supabase.from('cervejas').select('*')).eq('ativo', true).order('ordem'),
+      meu(supabase.from('clientes').select('*')).eq('aberto', true).order('created_at'),
+      meu(supabase.from('consumos').select('*')).order('created_at', { ascending: false }),
+      meu(supabase.from('historico').select('*'))
         .gte('created_at', desde24h)
         .order('created_at', { ascending: false }),
     ])
@@ -141,8 +145,10 @@ export default function App() {
   useEffect(() => {
     if (!isConfigured) return
     const ha30dias = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()
-    supabase.from('historico').delete().lt('created_at', ha30dias).then(() => {})
-  }, [])
+    let q = supabase.from('historico').delete().lt('created_at', ha30dias)
+    if (donoId) q = q.eq('distribuidora_id', donoId)
+    q.then(() => {})
+  }, [donoId])
 
   // desfazer uma movimentação: cada tipo tem sua ação inversa.
   async function reverter(h) {
@@ -339,9 +345,14 @@ export default function App() {
         <div className="marca">
           <span className="marca-logo">🍻</span>
           <div className="marca-txt">
-            <h1>BREJA &amp; CIA</h1>
+            <h1>{distribuidora?.nome || 'BREJA & CIA'}</h1>
             <span className="marca-sub">Distribuidora · Comanda</span>
           </div>
+          {onSair && (
+            <button className="btn-sair" onClick={onSair} aria-label="Sair">
+              Sair
+            </button>
+          )}
         </div>
         <nav className="abas">
           <button
