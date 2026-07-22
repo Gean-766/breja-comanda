@@ -1,6 +1,9 @@
 import { useState } from 'react'
 import { supabase, LOGIN_DOMAIN } from './supabase.js'
 
+// WhatsApp do suporte (você). Formato do wa.me: 55 + DDD + número.
+const SUPORTE_ZAP = '5565996296391'
+
 // Tela de entrada da distribuidora.
 // Ela digita só o login (ex: "brejaecia") e a senha — o e-mail interno
 // (login@comanda.local) é montado aqui e ela nunca vê. Sem código, sem
@@ -62,7 +65,17 @@ export default function Login() {
         {erro && <div className="login-erro">{erro}</div>}
 
         <p className="login-rodape">
-          Não tem acesso ou esqueceu a senha? Fale com quem te vendeu o sistema.
+          Não tem acesso ou esqueceu a senha? Fale com quem te vendeu o sistema:{' '}
+          <a
+            className="login-zap"
+            href={`https://wa.me/${SUPORTE_ZAP}?text=${encodeURIComponent(
+              'Oi! Preciso de ajuda com o acesso da Comanda.'
+            )}`}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            💬 (65) 99629-6391
+          </a>
         </p>
       </form>
     </div>

@@ -143,8 +143,20 @@ button:active {
 .login-rodape {
   margin: 18px 0 0;
   font-size: 12px;
-  line-height: 1.5;
+  line-height: 1.7;
   color: var(--muted);
+}
+.login-zap {
+  display: inline-block;
+  margin-top: 6px;
+  padding: 6px 12px;
+  border-radius: 20px;
+  background: #25d366;
+  color: #06331a;
+  font-size: 12.5px;
+  font-weight: 800;
+  text-decoration: none;
+  white-space: nowrap;
 }
 
 .topo {
