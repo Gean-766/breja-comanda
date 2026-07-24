@@ -74,6 +74,7 @@ export default function App({ distribuidora = null, onSair = null }) {
   const [clientes, setClientes] = useState([])
   const [consumos, setConsumos] = useState([])
   const [historico, setHistorico] = useState([])
+  const [entradas, setEntradas] = useState([]) // entradas de estoque (módulo Estoque)
   const [busca, setBusca] = useState('')
   const [novoNome, setNovoNome] = useState('')
   const [abertoId, setAbertoId] = useState(null) // cliente aberto na tela de detalhe
@@ -109,6 +110,15 @@ export default function App({ distribuidora = null, onSair = null }) {
     setConsumos(c3.data || [])
     setHistorico(c4.data || [])
     setCarregando(false)
+
+    // Estoque só carrega se o módulo estiver ligado. Fica num select à parte
+    // (não no Promise.all) pra que, se a tabela ainda não existir no banco,
+    // o erro morra aqui e não derrube o resto do carregamento.
+    if (abasExtra.includes('estoque')) {
+      const qe = meu(supabase.from('estoque_entradas').select('*'))
+      const re = await qe.order('created_at', { ascending: false })
+      setEntradas(re.data || [])
+    }
   }
 
   // grava uma linha no histórico (auditoria + permite desfazer).
@@ -142,6 +152,7 @@ export default function App({ distribuidora = null, onSair = null }) {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'clientes' }, recarregar)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'cervejas' }, recarregar)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'historico' }, recarregar)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'estoque_entradas' }, recarregar)
       .subscribe()
 
     // rede de segurança: se o tempo real cair (celular parado/bloqueado),
@@ -478,7 +489,16 @@ export default function App({ distribuidora = null, onSair = null }) {
 
       {abasExtra.includes(aba) &&
         (aba === 'relatorio' ? (
-          <Relatorio consumos={consumos} />
+          <Relatorio consumos={consumos} cervejas={cervejas} />
+        ) : aba === 'estoque' ? (
+          <AbaEstoque
+            cervejas={cervejas}
+            setCervejas={setCervejas}
+            entradas={entradas}
+            setEntradas={setEntradas}
+            consumos={consumos}
+            onErro={erro}
+          />
         ) : (
           MODULOS[aba] && <ModuloEmBreve mod={MODULOS[aba]} />
         ))}
@@ -1383,6 +1403,322 @@ function AbaHistorico({ historico, onReverter }) {
   )
 }
 
+// ===================== Módulo: Estoque =====================
+// Saldo = (contagem inicial + abastecimentos) − (saídas nas comandas desde a
+// contagem). A saída já existe nos `consumos` (casados pelo nome do produto).
+// Custo da caixa + unidades por caixa dão o custo unitário — e, lá no Relatório,
+// o lucro de verdade. Não toca no fluxo das comandas: é só leitura + entradas.
+function AbaEstoque({ cervejas, setCervejas, entradas, setEntradas, consumos, onErro }) {
+  const [abertoId, setAbertoId] = useState(null)
+  const reprDe = (c) => (c.tamanho ? `${c.nome} ${c.tamanho}` : c.nome)
+
+  // saídas somadas por nome-de-produto, guardando o instante (pra cortar no "desde")
+  const saidasPorNome = useMemo(() => {
+    const m = new Map()
+    for (const co of consumos) {
+      if (!m.has(co.beer_nome)) m.set(co.beer_nome, [])
+      m.get(co.beer_nome).push({ qtd: co.quantidade, ts: new Date(co.created_at).getTime() })
+    }
+    return m
+  }, [consumos])
+
+  const entradasPorCerveja = useMemo(() => {
+    const m = new Map()
+    for (const e of entradas) {
+      if (!m.has(e.cerveja_id)) m.set(e.cerveja_id, [])
+      m.get(e.cerveja_id).push(e)
+    }
+    return m
+  }, [entradas])
+
+  // calcula tudo por produto e ordena (alertas no topo)
+  const lista = useMemo(() => {
+    const arr = cervejas.map((c) => {
+      const ents = entradasPorCerveja.get(c.id) || []
+      const controlado = ents.length > 0
+      let entrou = 0
+      let desde = Infinity
+      for (const e of ents) {
+        entrou += Number(e.unidades) || 0
+        const t = new Date(e.created_at).getTime()
+        if (t < desde) desde = t
+      }
+      let saiu = 0
+      if (controlado) {
+        for (const s of saidasPorNome.get(reprDe(c)) || []) if (s.ts >= desde) saiu += s.qtd
+      }
+      const saldo = entrou - saiu
+      const custoUnit =
+        c.custo_caixa && c.unidades_caixa
+          ? Number(c.custo_caixa) / Number(c.unidades_caixa)
+          : null
+      const min = Number(c.estoque_min) || 0
+      let nivel = 'novo'
+      if (controlado) nivel = saldo <= 0 ? 'zero' : min > 0 && saldo <= min ? 'baixo' : 'ok'
+      return { c, controlado, entrou, saiu, saldo, custoUnit, min, nivel, ents }
+    })
+    const rank = { zero: 0, baixo: 1, ok: 2, novo: 3 }
+    return arr.sort(
+      (a, b) => rank[a.nivel] - rank[b.nivel] || a.c.nome.localeCompare(b.c.nome)
+    )
+  }, [cervejas, entradasPorCerveja, saidasPorNome])
+
+  async function salvarCampo(c, campo, valor) {
+    const txt = String(valor).trim()
+    const v = txt === '' ? null : Number(txt.replace(',', '.'))
+    if (v !== null && (isNaN(v) || v < 0)) return
+    const { error } = await supabase.from('cervejas').update({ [campo]: v }).eq('id', c.id)
+    if (error) return onErro('⚠️ Não salvou. Tente de novo.')
+    setCervejas((cs) => cs.map((x) => (x.id === c.id ? { ...x, [campo]: v } : x)))
+  }
+
+  async function abastecer(c, modo, valor) {
+    const num = Number(String(valor).replace(',', '.')) || 0
+    let unidades = 0
+    let caixas = null
+    if (modo === 'caixas') {
+      const upc = Number(c.unidades_caixa) || 0
+      if (!upc) return onErro('Defina "unid. por caixa" antes de abastecer por caixa.')
+      caixas = num
+      unidades = Math.round(num * upc)
+    } else {
+      unidades = Math.round(num)
+    }
+    if (unidades <= 0) return onErro('Quantas unidades entraram?')
+    const linha = { cerveja_id: c.id, unidades }
+    if (caixas) linha.caixas = caixas
+    if (c.custo_caixa) linha.custo_caixa = Number(c.custo_caixa)
+    const { data, error } = await supabase
+      .from('estoque_entradas')
+      .insert(linha)
+      .select()
+      .single()
+    if (error || !data) return onErro('⚠️ Não registrou a entrada. Tente de novo.')
+    setEntradas((es) => [data, ...es])
+  }
+
+  async function removerEntrada(id) {
+    if (!confirm('Apagar essa entrada? O saldo volta ao que era.')) return
+    const { error } = await supabase.from('estoque_entradas').delete().eq('id', id)
+    if (error) return onErro('⚠️ Não consegui apagar. Tente de novo.')
+    setEntradas((es) => es.filter((e) => e.id !== id))
+  }
+
+  if (cervejas.length === 0) {
+    return (
+      <main className="conteudo">
+        <p className="vazio">
+          Cadastre produtos na aba <b>Produtos</b> primeiro. Depois volta aqui pra
+          controlar o estoque deles.
+        </p>
+      </main>
+    )
+  }
+
+  return (
+    <main className="conteudo">
+      <p className="est-aviso">
+        O saldo cai sozinho a cada venda. Comece cada produto com a{' '}
+        <b>contagem do que tem hoje</b> — daí pra frente o sistema acompanha.
+      </p>
+      <div className="est-lista">
+        {lista.map((it) => (
+          <EstoqueCard
+            key={it.c.id}
+            it={it}
+            aberto={abertoId === it.c.id}
+            onAbrir={() => setAbertoId((id) => (id === it.c.id ? null : it.c.id))}
+            onCampo={salvarCampo}
+            onAbastecer={abastecer}
+            onRemoverEntrada={removerEntrada}
+          />
+        ))}
+      </div>
+    </main>
+  )
+}
+
+function EstoqueCard({ it, aberto, onAbrir, onCampo, onAbastecer, onRemoverEntrada }) {
+  const { c, controlado, entrou, saiu, saldo, custoUnit, nivel, ents } = it
+  // começa em "unidades" enquanto não houver unid/caixa (assim o 1º uso — a
+  // contagem inicial — funciona na hora); com caixa configurada, vai pra "caixas"
+  const [modo, setModo] = useState(c.unidades_caixa ? 'caixas' : 'unidades')
+  const [qtd, setQtd] = useState('')
+  const reprDe = (x) => (x.tamanho ? `${x.nome} ${x.tamanho}` : x.nome)
+
+  const badge =
+    nivel === 'novo'
+      ? { txt: 'sem controle', cls: 'est-novo' }
+      : nivel === 'zero'
+      ? { txt: 'esgotado', cls: 'est-zero' }
+      : nivel === 'baixo'
+      ? { txt: 'estoque baixo', cls: 'est-baixo' }
+      : { txt: 'ok', cls: 'est-ok' }
+
+  function registrar() {
+    if (!qtd) return
+    onAbastecer(c, modo, qtd)
+    setQtd('')
+  }
+
+  return (
+    <div className={'est-card ' + badge.cls + (aberto ? ' on' : '')}>
+      <button className="est-cab" onClick={onAbrir}>
+        <div className="est-cab-txt">
+          <span className="est-nome">{reprDe(c)}</span>
+          <span className={'est-badge ' + badge.cls}>{badge.txt}</span>
+        </div>
+        <div className="est-saldo">
+          {controlado ? (
+            <>
+              <strong>{saldo}</strong>
+              <span>un.</span>
+            </>
+          ) : (
+            <span className="est-saldo-vazio">—</span>
+          )}
+        </div>
+      </button>
+
+      {aberto && (
+        <div className="est-corpo">
+          <div className="est-linha-campos">
+            <label className="est-campo">
+              <span>Custo da caixa</span>
+              <div className="est-inp">
+                <i>R$</i>
+                <input
+                  type="number"
+                  step="0.50"
+                  inputMode="decimal"
+                  defaultValue={c.custo_caixa ?? ''}
+                  placeholder="0,00"
+                  onBlur={(e) => onCampo(c, 'custo_caixa', e.target.value)}
+                />
+              </div>
+            </label>
+            <label className="est-campo">
+              <span>Unid. por caixa</span>
+              <div className="est-inp">
+                <input
+                  type="number"
+                  step="1"
+                  inputMode="numeric"
+                  defaultValue={c.unidades_caixa ?? ''}
+                  placeholder="12"
+                  onBlur={(e) => onCampo(c, 'unidades_caixa', e.target.value)}
+                />
+              </div>
+            </label>
+          </div>
+
+          <div className="est-linha-campos est-linha-2">
+            <div className="est-custo-unit">
+              {custoUnit != null ? (
+                <>
+                  Custo por unidade: <b>{money(custoUnit)}</b>
+                </>
+              ) : (
+                'Preencha custo e unidades pra ver o custo unitário (e o lucro no Relatório).'
+              )}
+            </div>
+            <label className="est-campo est-campo-min">
+              <span>Avisar quando ≤</span>
+              <div className="est-inp">
+                <input
+                  type="number"
+                  step="1"
+                  inputMode="numeric"
+                  defaultValue={c.estoque_min ?? ''}
+                  placeholder="0"
+                  onBlur={(e) => onCampo(c, 'estoque_min', e.target.value)}
+                />
+              </div>
+            </label>
+          </div>
+
+          <div className="est-abastecer">
+            <div className="est-modo">
+              <button
+                className={modo === 'caixas' ? 'on' : ''}
+                onClick={() => setModo('caixas')}
+              >
+                Caixas
+              </button>
+              <button
+                className={modo === 'unidades' ? 'on' : ''}
+                onClick={() => setModo('unidades')}
+              >
+                Unidades
+              </button>
+            </div>
+            <input
+              className="est-qtd"
+              type="number"
+              step="1"
+              inputMode="numeric"
+              placeholder={modo === 'caixas' ? 'nº de caixas' : 'nº de unidades'}
+              value={qtd}
+              onChange={(e) => setQtd(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && registrar()}
+            />
+            <button className="est-add" onClick={registrar}>
+              {controlado ? '+ Entrada' : '✓ Contar'}
+            </button>
+          </div>
+
+          {!controlado && (
+            <p className="est-dica">
+              Primeira vez: conte o que tem no estoque agora e registre. Isso vira o
+              ponto de partida — a partir daí cada venda desconta.
+            </p>
+          )}
+
+          {controlado && (
+            <div className="est-stats">
+              <div>
+                <span>Entrou</span>
+                <b>{entrou}</b>
+              </div>
+              <div>
+                <span>Saiu</span>
+                <b>{saiu}</b>
+              </div>
+              <div>
+                <span>Saldo</span>
+                <b>{saldo}</b>
+              </div>
+            </div>
+          )}
+
+          {ents.length > 0 && (
+            <div className="est-entradas">
+              <span className="est-entradas-tit">Últimas entradas</span>
+              {ents.slice(0, 4).map((e) => (
+                <div key={e.id} className="est-ent-linha">
+                  <span className="est-ent-un">
+                    +{e.unidades} un.{e.caixas ? ` (${e.caixas} cx)` : ''}
+                  </span>
+                  <span className="est-ent-data">
+                    {new Date(e.created_at).toLocaleDateString('pt-BR')}
+                  </span>
+                  <button
+                    className="est-ent-x"
+                    onClick={() => onRemoverEntrada(e.id)}
+                    aria-label="Apagar entrada"
+                  >
+                    ✕
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ===================== Módulo: Relatório =====================
 // Leitura pura dos `consumos` que o app já tem em mãos. Cada consumo é uma venda
 // (item lançado numa comanda), então dá pra montar faturamento, itens e ranking
@@ -1407,8 +1743,20 @@ function inicioPeriodo(periodo) {
   return agora.getTime() - dias * 24 * 60 * 60 * 1000
 }
 
-function Relatorio({ consumos }) {
+function Relatorio({ consumos, cervejas = [] }) {
   const [periodo, setPeriodo] = useState('hoje')
+
+  // custo unitário por nome-de-produto (só dos que têm custo cadastrado no Estoque)
+  const custoPorNome = useMemo(() => {
+    const m = new Map()
+    for (const c of cervejas) {
+      if (c.custo_caixa && c.unidades_caixa) {
+        const repr = c.tamanho ? `${c.nome} ${c.tamanho}` : c.nome
+        m.set(repr, Number(c.custo_caixa) / Number(c.unidades_caixa))
+      }
+    }
+    return m
+  }, [cervejas])
 
   const dados = useMemo(() => {
     const inicio = inicioPeriodo(periodo)
@@ -1417,6 +1765,9 @@ function Relatorio({ consumos }) {
     )
     let faturamento = 0
     let itens = 0
+    let custoTotal = 0 // custo só dos itens que têm custo cadastrado
+    let vendaComCusto = 0 // venda desses mesmos itens (pra o lucro casar)
+    let itensComCusto = 0
     const comandas = new Set()
     const porProduto = new Map()
     for (const c of noPeriodo) {
@@ -1424,6 +1775,12 @@ function Relatorio({ consumos }) {
       faturamento += val
       itens += c.quantidade
       comandas.add(c.cliente_id)
+      const cu = custoPorNome.get(c.beer_nome)
+      if (cu != null) {
+        custoTotal += cu * c.quantidade
+        vendaComCusto += val
+        itensComCusto += c.quantidade
+      }
       if (!porProduto.has(c.beer_nome))
         porProduto.set(c.beer_nome, { nome: c.beer_nome, qtd: 0, total: 0 })
       const p = porProduto.get(c.beer_nome)
@@ -1437,11 +1794,14 @@ function Relatorio({ consumos }) {
       itens,
       nComandas,
       ticket: nComandas ? faturamento / nComandas : 0,
+      temCusto: itensComCusto > 0,
+      lucro: vendaComCusto - custoTotal, // honesto: só onde há custo cadastrado
+      lucroParcial: itensComCusto < itens, // nem todo item tem custo → lucro é de parte
       ranking,
       maxQtd: ranking.reduce((m, p) => Math.max(m, p.qtd), 0),
       vazio: noPeriodo.length === 0,
     }
-  }, [consumos, periodo])
+  }, [consumos, custoPorNome, periodo])
 
   return (
     <main className="conteudo">
@@ -1466,6 +1826,14 @@ function Relatorio({ consumos }) {
               <span className="kpi-lbl">Faturamento</span>
               <strong className="kpi-val">{money(dados.faturamento)}</strong>
             </div>
+            {dados.temCusto && (
+              <div className="kpi kpi-lucro">
+                <span className="kpi-lbl">
+                  Lucro{dados.lucroParcial ? ' *' : ''}
+                </span>
+                <strong className="kpi-val">{money(dados.lucro)}</strong>
+              </div>
+            )}
             <div className="kpi">
               <span className="kpi-lbl">Itens vendidos</span>
               <strong className="kpi-val">{dados.itens}</strong>
@@ -1479,6 +1847,12 @@ function Relatorio({ consumos }) {
               <strong className="kpi-val">{money(dados.ticket)}</strong>
             </div>
           </div>
+          {dados.temCusto && dados.lucroParcial && (
+            <p className="rel-nota">
+              * Lucro só dos produtos com <b>custo cadastrado</b> no Estoque.
+              Cadastre o custo dos demais pra ver o lucro cheio.
+            </p>
+          )}
 
           <h3 className="sec">Mais vendidos</h3>
           <div className="rel-ranking">

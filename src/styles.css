@@ -1310,6 +1310,286 @@ input[type='number'] {
   font-weight: 900;
 }
 
+/* ===== Módulo Estoque ===== */
+.est-aviso {
+  margin: -4px 0 14px;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--muted);
+}
+.est-lista {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.est-card {
+  background: var(--card);
+  border-radius: 14px;
+  border-left: 5px solid var(--card2);
+  overflow: hidden;
+}
+.est-card.est-zero {
+  border-left-color: var(--danger);
+}
+.est-card.est-baixo {
+  border-left-color: var(--accent);
+}
+.est-card.est-ok {
+  border-left-color: var(--accent2);
+}
+.est-cab {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 14px;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+}
+.est-cab-txt {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.est-nome {
+  font-size: 17px;
+  font-weight: 800;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.est-badge {
+  align-self: flex-start;
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: var(--card2);
+  color: var(--muted);
+}
+.est-badge.est-zero {
+  background: #5a1f1a;
+  color: #ffb4a6;
+}
+.est-badge.est-baixo {
+  background: #4a3410;
+  color: var(--accent);
+}
+.est-badge.est-ok {
+  background: #1c4a2c;
+  color: #7ee0a0;
+}
+.est-saldo {
+  flex-shrink: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+}
+.est-saldo strong {
+  font-size: 26px;
+  font-weight: 900;
+}
+.est-saldo span {
+  font-size: 13px;
+  color: var(--muted);
+  font-weight: 700;
+}
+.est-saldo-vazio {
+  font-size: 22px;
+  color: var(--muted);
+}
+
+.est-corpo {
+  padding: 4px 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.est-linha-campos {
+  display: flex;
+  gap: 10px;
+  align-items: flex-end;
+}
+.est-linha-2 {
+  align-items: center;
+}
+.est-campo {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.est-campo > span {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--muted);
+}
+.est-campo-min {
+  flex: 0 0 auto;
+  max-width: 140px;
+}
+.est-inp {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--bg);
+  border: 2px solid var(--card2);
+  border-radius: 10px;
+  padding: 0 10px;
+}
+.est-inp i {
+  font-style: normal;
+  font-size: 14px;
+  color: var(--muted);
+  font-weight: 700;
+}
+.est-inp input {
+  width: 100%;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font-size: 16px;
+  font-weight: 700;
+  padding: 11px 0;
+  outline: none;
+}
+.est-custo-unit {
+  flex: 1;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--muted);
+}
+.est-custo-unit b {
+  color: var(--text);
+  font-size: 15px;
+}
+
+.est-abastecer {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+.est-modo {
+  display: flex;
+  background: var(--bg);
+  border-radius: 10px;
+  padding: 3px;
+  gap: 3px;
+  flex-shrink: 0;
+}
+.est-modo button {
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+  padding: 8px 10px;
+  border-radius: 8px;
+}
+.est-modo button.on {
+  background: var(--accent);
+  color: #1a1206;
+}
+.est-qtd {
+  flex: 1;
+  min-width: 0;
+  border: 2px solid var(--card2);
+  border-radius: 10px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 16px;
+  font-weight: 700;
+  padding: 10px 12px;
+  outline: none;
+}
+.est-add {
+  flex-shrink: 0;
+  border: none;
+  border-radius: 10px;
+  background: var(--accent2);
+  color: #06210f;
+  font-size: 15px;
+  font-weight: 800;
+  padding: 10px 14px;
+  white-space: nowrap;
+}
+.est-dica {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--muted);
+  background: var(--bg);
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+.est-stats {
+  display: flex;
+  gap: 8px;
+}
+.est-stats > div {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  background: var(--bg);
+  border-radius: 10px;
+  padding: 10px 6px;
+}
+.est-stats span {
+  font-size: 12px;
+  color: var(--muted);
+  font-weight: 700;
+}
+.est-stats b {
+  font-size: 19px;
+  font-weight: 900;
+}
+.est-entradas {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.est-entradas-tit {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--muted);
+}
+.est-ent-linha {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--bg);
+  border-radius: 9px;
+  padding: 8px 10px;
+}
+.est-ent-un {
+  flex: 1;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--accent2);
+}
+.est-ent-data {
+  font-size: 12px;
+  color: var(--muted);
+  font-weight: 600;
+}
+.est-ent-x {
+  border: none;
+  background: var(--card2);
+  color: var(--muted);
+  border-radius: 7px;
+  font-size: 12px;
+  font-weight: 800;
+  padding: 5px 8px;
+}
+
 /* ===== Módulo Relatório ===== */
 .rel-periodos {
   display: flex;
@@ -1363,6 +1643,26 @@ input[type='number'] {
 }
 .kpi-destaque .kpi-val {
   font-size: 30px;
+}
+.kpi-lucro {
+  grid-column: 1 / -1;
+  background: linear-gradient(135deg, var(--accent2), #1f8f4d);
+  color: #05230f;
+}
+.kpi-lucro .kpi-lbl {
+  color: #0a3d1c;
+}
+.kpi-lucro .kpi-val {
+  font-size: 30px;
+}
+.rel-nota {
+  margin: 10px 0 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--muted);
+}
+.rel-nota b {
+  color: var(--text);
 }
 .rel-ranking {
   display: flex;
