@@ -476,9 +476,12 @@ export default function App({ distribuidora = null, onSair = null }) {
         <AbaHistorico historico={historico} onReverter={reverter} />
       )}
 
-      {abasExtra.includes(aba) && MODULOS[aba] && (
-        <ModuloEmBreve mod={MODULOS[aba]} />
-      )}
+      {abasExtra.includes(aba) &&
+        (aba === 'relatorio' ? (
+          <Relatorio consumos={consumos} />
+        ) : (
+          MODULOS[aba] && <ModuloEmBreve mod={MODULOS[aba]} />
+        ))}
 
       {clienteAberto && (
         <Detalhe
@@ -1376,6 +1379,130 @@ function AbaHistorico({ historico, onReverter }) {
             </div>
           )
         })()}
+    </main>
+  )
+}
+
+// ===================== Módulo: Relatório =====================
+// Leitura pura dos `consumos` que o app já tem em mãos. Cada consumo é uma venda
+// (item lançado numa comanda), então dá pra montar faturamento, itens e ranking
+// sem tocar no banco. Quando o Estoque entrar (com o custo da caixa), aqui ganha
+// o LUCRO de verdade; por ora é faturamento (o que saiu).
+const PERIODOS = [
+  { id: 'hoje', label: 'Hoje' },
+  { id: '7d', label: '7 dias' },
+  { id: '30d', label: '30 dias' },
+]
+
+// começo do período, em ms. "Hoje" é o dia do calendário (meia-noite local);
+// 7d/30d são janelas corridas terminando agora.
+function inicioPeriodo(periodo) {
+  const agora = new Date()
+  if (periodo === 'hoje') {
+    const d = new Date(agora)
+    d.setHours(0, 0, 0, 0)
+    return d.getTime()
+  }
+  const dias = periodo === '7d' ? 7 : 30
+  return agora.getTime() - dias * 24 * 60 * 60 * 1000
+}
+
+function Relatorio({ consumos }) {
+  const [periodo, setPeriodo] = useState('hoje')
+
+  const dados = useMemo(() => {
+    const inicio = inicioPeriodo(periodo)
+    const noPeriodo = consumos.filter(
+      (c) => new Date(c.created_at).getTime() >= inicio
+    )
+    let faturamento = 0
+    let itens = 0
+    const comandas = new Set()
+    const porProduto = new Map()
+    for (const c of noPeriodo) {
+      const val = Number(c.preco_unit) * c.quantidade
+      faturamento += val
+      itens += c.quantidade
+      comandas.add(c.cliente_id)
+      if (!porProduto.has(c.beer_nome))
+        porProduto.set(c.beer_nome, { nome: c.beer_nome, qtd: 0, total: 0 })
+      const p = porProduto.get(c.beer_nome)
+      p.qtd += c.quantidade
+      p.total += val
+    }
+    const ranking = [...porProduto.values()].sort((a, b) => b.qtd - a.qtd)
+    const nComandas = comandas.size
+    return {
+      faturamento,
+      itens,
+      nComandas,
+      ticket: nComandas ? faturamento / nComandas : 0,
+      ranking,
+      maxQtd: ranking.reduce((m, p) => Math.max(m, p.qtd), 0),
+      vazio: noPeriodo.length === 0,
+    }
+  }, [consumos, periodo])
+
+  return (
+    <main className="conteudo">
+      <div className="rel-periodos">
+        {PERIODOS.map((p) => (
+          <button
+            key={p.id}
+            className={periodo === p.id ? 'rel-per on' : 'rel-per'}
+            onClick={() => setPeriodo(p.id)}
+          >
+            {p.label}
+          </button>
+        ))}
+      </div>
+
+      {dados.vazio ? (
+        <p className="vazio">Nenhuma venda nesse período ainda.</p>
+      ) : (
+        <>
+          <div className="rel-kpis">
+            <div className="kpi kpi-destaque">
+              <span className="kpi-lbl">Faturamento</span>
+              <strong className="kpi-val">{money(dados.faturamento)}</strong>
+            </div>
+            <div className="kpi">
+              <span className="kpi-lbl">Itens vendidos</span>
+              <strong className="kpi-val">{dados.itens}</strong>
+            </div>
+            <div className="kpi">
+              <span className="kpi-lbl">Comandas</span>
+              <strong className="kpi-val">{dados.nComandas}</strong>
+            </div>
+            <div className="kpi">
+              <span className="kpi-lbl">Ticket médio</span>
+              <strong className="kpi-val">{money(dados.ticket)}</strong>
+            </div>
+          </div>
+
+          <h3 className="sec">Mais vendidos</h3>
+          <div className="rel-ranking">
+            {dados.ranking.map((p, i) => (
+              <div key={p.nome} className="rk-item">
+                <span className="rk-pos">{i + 1}</span>
+                <div className="rk-corpo">
+                  <div className="rk-topo">
+                    <span className="rk-nome">{p.nome}</span>
+                    <span className="rk-total">{money(p.total)}</span>
+                  </div>
+                  <div className="rk-barra-bg">
+                    <div
+                      className="rk-barra"
+                      style={{ width: (dados.maxQtd ? (p.qtd / dados.maxQtd) * 100 : 0) + '%' }}
+                    />
+                  </div>
+                  <span className="rk-qtd">{p.qtd} un.</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
     </main>
   )
 }

@@ -1310,6 +1310,124 @@ input[type='number'] {
   font-weight: 900;
 }
 
+/* ===== Módulo Relatório ===== */
+.rel-periodos {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+.rel-per {
+  flex: 1;
+  padding: 11px;
+  font-size: 15px;
+  font-weight: 700;
+  border: none;
+  border-radius: 10px;
+  background: var(--card);
+  color: var(--muted);
+}
+.rel-per.on {
+  background: var(--accent);
+  color: #1a1206;
+}
+.rel-kpis {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.kpi {
+  background: var(--card);
+  border-radius: 14px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.kpi-destaque {
+  grid-column: 1 / -1;
+  background: linear-gradient(135deg, var(--accent), #b8862b);
+  color: #1a1206;
+}
+.kpi-lbl {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--muted);
+}
+.kpi-destaque .kpi-lbl {
+  color: #4a3410;
+}
+.kpi-val {
+  font-size: 24px;
+  font-weight: 900;
+}
+.kpi-destaque .kpi-val {
+  font-size: 30px;
+}
+.rel-ranking {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.rk-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  background: var(--card);
+  border-radius: 12px;
+  padding: 12px 14px;
+}
+.rk-pos {
+  font-size: 16px;
+  font-weight: 900;
+  color: var(--accent);
+  min-width: 20px;
+  text-align: center;
+  padding-top: 2px;
+}
+.rk-corpo {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.rk-topo {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+}
+.rk-nome {
+  font-size: 15px;
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rk-total {
+  font-size: 15px;
+  font-weight: 800;
+  flex-shrink: 0;
+}
+.rk-barra-bg {
+  height: 8px;
+  background: var(--card2);
+  border-radius: 999px;
+  overflow: hidden;
+}
+.rk-barra {
+  height: 100%;
+  background: var(--accent);
+  border-radius: 999px;
+  min-width: 4px;
+  transition: width 0.3s ease;
+}
+.rk-qtd {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
 /* ===== Módulo ligado mas ainda em construção ===== */
 .modulo-embreve {
   display: flex;
