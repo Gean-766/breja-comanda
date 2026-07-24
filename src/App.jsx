@@ -61,6 +61,18 @@ const MODULOS = {
 }
 const ORDEM_MODULOS = ['estoque', 'relatorio', 'cozinha']
 
+// formas de pagamento: a chave (id) é o que fica salvo em clientes.forma_pagamento;
+// o rótulo/ícone é só pra tela. Comanda antiga (sem forma) vira "• Outro".
+const FORMAS_PAGAMENTO = [
+  { id: 'dinheiro', label: 'Dinheiro', icone: '💵' },
+  { id: 'pix', label: 'Pix', icone: '⚡' },
+  { id: 'cartao', label: 'Cartão', icone: '💳' },
+]
+const rotuloForma = (id) => {
+  const f = FORMAS_PAGAMENTO.find((x) => x.id === id)
+  return f ? `${f.icone} ${f.label}` : '• Outro'
+}
+
 // `distribuidora` e `onSair` vêm do Portao.jsx (quem já passou pelo login).
 // O RLS do banco já isola os dados por distribuidora; os filtros por
 // distribuidora_id aqui embaixo são só uma segunda tranca.
@@ -77,6 +89,7 @@ export default function App({ distribuidora = null, onSair = null }) {
   const [consumos, setConsumos] = useState([])
   const [historico, setHistorico] = useState([])
   const [entradas, setEntradas] = useState([]) // entradas de estoque (módulo Estoque)
+  const [pagas, setPagas] = useState([]) // comandas já pagas nos últimos 30d (módulo Relatório)
   const [busca, setBusca] = useState('')
   const [novoNome, setNovoNome] = useState('')
   const [abertoId, setAbertoId] = useState(null) // cliente aberto na tela de detalhe
@@ -120,6 +133,17 @@ export default function App({ distribuidora = null, onSair = null }) {
       const qe = meu(supabase.from('estoque_entradas').select('*'))
       const re = await qe.order('created_at', { ascending: false })
       setEntradas(re.data || [])
+    }
+
+    // Relatório precisa das comandas JÁ PAGAS pra montar o "recebido" (as abertas
+    // já vêm em `clientes`). Últimos 30 dias — bate com o maior período do relatório.
+    if (abasExtra.includes('relatorio')) {
+      const desde30d = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()
+      const rp = await meu(supabase.from('clientes').select('*'))
+        .eq('aberto', false)
+        .gte('pago_em', desde30d)
+        .order('pago_em', { ascending: false })
+      setPagas(rp.data || [])
     }
   }
 
@@ -331,20 +355,31 @@ export default function App({ distribuidora = null, onSair = null }) {
     })
   }
 
-  async function fecharConta(cliente_id) {
+  async function fecharConta(cliente_id, forma = null) {
     const cli = clientes.find((c) => c.id === cliente_id)
     const r = resumo[cliente_id] || { total: 0, qtd: 0 }
-    await supabase
+    const pago_em = new Date().toISOString()
+    // tenta gravar a forma; se a coluna ainda não existe no banco, fecha sem ela
+    // (assim o fechar nunca quebra antes de rodar o SQL do financeiro)
+    let upd = await supabase
       .from('clientes')
-      .update({ aberto: false, pago_em: new Date().toISOString() })
+      .update({ aberto: false, pago_em, forma_pagamento: forma })
       .eq('id', cliente_id)
+    if (upd.error && /forma_pagamento/i.test(upd.error.message || '')) {
+      upd = await supabase
+        .from('clientes')
+        .update({ aberto: false, pago_em })
+        .eq('id', cliente_id)
+    }
     setClientes((cs) => cs.filter((c) => c.id !== cliente_id))
+    // já joga na lista de pagas pro Relatório refletir na hora
+    if (cli) setPagas((ps) => [{ ...cli, aberto: false, pago_em, forma_pagamento: forma }, ...ps])
     setAbertoId(null)
     setBusca('')
     if (cli)
       registrar(
         'fechar_cliente',
-        `Fechou/pagou a comanda de ${cli.nome} (${money(r.total)})`,
+        `Fechou/pagou a comanda de ${cli.nome} (${money(r.total)}${forma ? ' · ' + forma : ''})`,
         { cliente: cli }
       )
   }
@@ -498,7 +533,12 @@ export default function App({ distribuidora = null, onSair = null }) {
 
       {abasExtra.includes(aba) &&
         (aba === 'relatorio' ? (
-          <Relatorio consumos={consumos} cervejas={cervejas} />
+          <Relatorio
+            consumos={consumos}
+            cervejas={cervejas}
+            pagas={pagas}
+            abertas={clientes}
+          />
         ) : aba === 'estoque' ? (
           <AbaEstoque
             cervejas={cervejas}
@@ -648,6 +688,7 @@ function Detalhe({ cliente, cervejas, consumos, resumo, onAdd, onRemove, onFecha
   const [ultimoTocado, setUltimoTocado] = useState(null) // só p/ a animação
   const [mostrarResumo, setMostrarResumo] = useState(false)
   const [confirmar, setConfirmar] = useState(null) // produto aguardando confirmação
+  const [pagando, setPagando] = useState(false) // folha "como pagou?" ao fechar
 
   const reprDe = (c) => (c.tamanho ? `${c.nome} ${c.tamanho}` : c.nome)
 
@@ -840,13 +881,7 @@ function Detalhe({ cliente, cervejas, consumos, resumo, onAdd, onRemove, onFecha
               📋 Resumo
             </button>
           </div>
-          <button
-            className="btn-pagar"
-            onClick={() => {
-              if (confirm(`Fechar e marcar como PAGO a conta de ${cliente.nome}?`))
-                onFechar(cliente.id)
-            }}
-          >
+          <button className="btn-pagar" onClick={() => setPagando(true)}>
             ✓ Pagar / Fechar
           </button>
         </footer>
@@ -874,6 +909,36 @@ function Detalhe({ cliente, cervejas, consumos, resumo, onAdd, onRemove, onFecha
               onClick={() => setMostrarResumo(false)}
             >
               Fechar
+            </button>
+          </div>
+        </div>
+      )}
+
+      {pagando && (
+        <div className="pag-overlay" onClick={() => setPagando(false)}>
+          <div className="pag-box" onClick={(e) => e.stopPropagation()}>
+            <p className="pag-titulo">Como {cliente.nome} pagou?</p>
+            <strong className="pag-total">{money(resumo.total)}</strong>
+            <div className="pag-formas">
+              {FORMAS_PAGAMENTO.map((f) => (
+                <button
+                  key={f.id}
+                  className="pag-forma"
+                  onClick={() => onFechar(cliente.id, f.id)}
+                >
+                  <span className="pag-forma-ic">{f.icone}</span>
+                  {f.label}
+                </button>
+              ))}
+            </div>
+            <button
+              className="pag-outro"
+              onClick={() => onFechar(cliente.id, null)}
+            >
+              Fechar sem informar
+            </button>
+            <button className="pag-cancelar" onClick={() => setPagando(false)}>
+              Cancelar
             </button>
           </div>
         </div>
@@ -1752,8 +1817,39 @@ function inicioPeriodo(periodo) {
   return agora.getTime() - dias * 24 * 60 * 60 * 1000
 }
 
-function Relatorio({ consumos, cervejas = [] }) {
+function Relatorio({ consumos, cervejas = [], pagas = [], abertas = [] }) {
   const [periodo, setPeriodo] = useState('hoje')
+
+  // total de cada comanda (soma dos consumos dela) — serve pro caixa
+  const totalPorCliente = useMemo(() => {
+    const m = new Map()
+    for (const c of consumos)
+      m.set(c.cliente_id, (m.get(c.cliente_id) || 0) + Number(c.preco_unit) * c.quantidade)
+    return m
+  }, [consumos])
+
+  // caixa: quanto ENTROU no período (comandas pagas, por forma) + o que está aberto AGORA
+  const caixa = useMemo(() => {
+    const inicio = inicioPeriodo(periodo)
+    const porForma = new Map()
+    let recebido = 0
+    for (const p of pagas) {
+      if (!p.pago_em || new Date(p.pago_em).getTime() < inicio) continue
+      const t = totalPorCliente.get(p.id) || 0
+      recebido += t
+      const f = p.forma_pagamento || 'outro'
+      porForma.set(f, (porForma.get(f) || 0) + t)
+    }
+    let emAberto = 0
+    for (const a of abertas) emAberto += totalPorCliente.get(a.id) || 0
+    // ordena as formas pela ordem oficial, "outro" por último
+    const ordem = FORMAS_PAGAMENTO.map((f) => f.id)
+    const formas = [...porForma.entries()].sort(
+      (a, b) =>
+        (ordem.indexOf(a[0]) + 1 || 99) - (ordem.indexOf(b[0]) + 1 || 99)
+    )
+    return { recebido, formas, emAberto, nAberto: abertas.length }
+  }, [pagas, abertas, totalPorCliente, periodo])
 
   // custo unitário por nome-de-produto (só dos que têm custo cadastrado no Estoque)
   const custoPorNome = useMemo(() => {
@@ -1862,6 +1958,31 @@ function Relatorio({ consumos, cervejas = [] }) {
               Cadastre o custo dos demais pra ver o lucro cheio.
             </p>
           )}
+
+          <h3 className="sec">💳 Caixa</h3>
+          <div className="rel-caixa">
+            <div className="caixa-card caixa-recebido">
+              <span className="kpi-lbl">Recebido no período</span>
+              <strong className="kpi-val">{money(caixa.recebido)}</strong>
+              {caixa.formas.length > 0 && (
+                <div className="caixa-formas">
+                  {caixa.formas.map(([f, v]) => (
+                    <div key={f} className="cf-linha">
+                      <span>{rotuloForma(f)}</span>
+                      <b>{money(v)}</b>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className="caixa-card caixa-aberto">
+              <span className="kpi-lbl">Em aberto agora</span>
+              <strong className="kpi-val">{money(caixa.emAberto)}</strong>
+              <span className="caixa-sub">
+                {caixa.nAberto} comanda{caixa.nAberto === 1 ? '' : 's'} sem pagar
+              </span>
+            </div>
+          </div>
 
           <h3 className="sec">Mais vendidos</h3>
           <div className="rel-ranking">

@@ -1728,6 +1728,132 @@ input[type='number'] {
   color: var(--muted);
 }
 
+/* seção Caixa do Relatório */
+.rel-caixa {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.caixa-card {
+  background: var(--card);
+  border-radius: 14px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.caixa-recebido {
+  border-left: 5px solid var(--accent2);
+}
+.caixa-aberto {
+  border-left: 5px solid var(--card2);
+}
+.caixa-formas {
+  margin-top: 8px;
+  padding-top: 10px;
+  border-top: 1px solid var(--card2);
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+.cf-linha {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 14px;
+  font-weight: 600;
+}
+.cf-linha b {
+  font-weight: 800;
+}
+.caixa-sub {
+  font-size: 12px;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+/* folha "como pagou?" (sobe de baixo) */
+.pag-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+.pag-box {
+  width: 100%;
+  max-width: 480px;
+  background: var(--card);
+  border-radius: 20px 20px 0 0;
+  padding: 22px 20px calc(20px + env(safe-area-inset-bottom));
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  box-shadow: 0 -8px 40px rgba(0, 0, 0, 0.5);
+  animation: pag-up 0.2s ease;
+}
+@keyframes pag-up {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+.pag-titulo {
+  margin: 0;
+  text-align: center;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--muted);
+}
+.pag-total {
+  text-align: center;
+  font-size: 34px;
+  font-weight: 900;
+  margin-bottom: 4px;
+}
+.pag-formas {
+  display: flex;
+  gap: 10px;
+}
+.pag-forma {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 16px 8px;
+  border: none;
+  border-radius: 14px;
+  background: var(--accent2);
+  color: #06210f;
+  font-size: 15px;
+  font-weight: 800;
+}
+.pag-forma-ic {
+  font-size: 26px;
+}
+.pag-outro {
+  border: none;
+  border-radius: 12px;
+  background: var(--card2);
+  color: var(--text);
+  font-size: 15px;
+  font-weight: 700;
+  padding: 13px;
+}
+.pag-cancelar {
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font-size: 15px;
+  font-weight: 700;
+  padding: 6px;
+}
+
 /* ===== Módulo ligado mas ainda em construção ===== */
 .modulo-embreve {
   display: flex;
