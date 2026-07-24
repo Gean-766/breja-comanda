@@ -548,6 +548,15 @@ export default function App({ distribuidora = null, onSair = null }) {
             consumos={consumos}
             onErro={erro}
           />
+        ) : aba === 'cozinha' ? (
+          <AbaCozinha
+            cervejas={cervejas}
+            setCervejas={setCervejas}
+            consumos={consumos}
+            setConsumos={setConsumos}
+            clientes={clientes}
+            onErro={erro}
+          />
         ) : (
           MODULOS[aba] && <ModuloEmBreve mod={MODULOS[aba]} />
         ))}
@@ -1473,6 +1482,191 @@ function AbaHistorico({ historico, onReverter }) {
             </div>
           )
         })()}
+    </main>
+  )
+}
+
+// ===================== Módulo: Cozinha (v1) =====================
+// Lê os lançamentos: os que são de produto "vai_cozinha" e ainda não foram
+// marcados prontos formam a fila da cozinha. O cozinheiro toca "Pronto" e o item
+// sai da fila. Não mexe no fluxo de lançar — só marca um pronto_em no consumo.
+function haQuanto(ts) {
+  const min = Math.floor((Date.now() - new Date(ts).getTime()) / 60000)
+  if (min < 1) return 'agora'
+  if (min < 60) return min + ' min'
+  const h = Math.floor(min / 60)
+  return h + ' h' + (min % 60 ? ' ' + (min % 60) + 'min' : '')
+}
+
+function AbaCozinha({ cervejas, setCervejas, consumos, setConsumos, clientes, onErro }) {
+  const [verConfig, setVerConfig] = useState(false)
+  const [verProntos, setVerProntos] = useState(false)
+  const reprDe = (c) => (c.tamanho ? `${c.nome} ${c.tamanho}` : c.nome)
+
+  const reprsCozinha = useMemo(() => {
+    const s = new Set()
+    for (const c of cervejas) if (c.vai_cozinha) s.add(reprDe(c))
+    return s
+  }, [cervejas])
+
+  const nomePorCliente = useMemo(() => {
+    const m = new Map()
+    for (const c of clientes) m.set(c.id, c.nome)
+    return m
+  }, [clientes])
+
+  const desde12h = Date.now() - 12 * 60 * 60 * 1000
+  const hojeIni = new Date().setHours(0, 0, 0, 0)
+
+  // fila: itens de cozinha, não prontos, das últimas 12h — agrupados por comanda
+  const fila = useMemo(() => {
+    const map = new Map()
+    for (const co of consumos) {
+      if (!reprsCozinha.has(co.beer_nome) || co.pronto_em) continue
+      if (new Date(co.created_at).getTime() < desde12h) continue
+      if (!map.has(co.cliente_id))
+        map.set(co.cliente_id, {
+          id: co.cliente_id,
+          nome: nomePorCliente.get(co.cliente_id) || 'Comanda',
+          itens: [],
+          desde: co.created_at,
+        })
+      const b = map.get(co.cliente_id)
+      b.itens.push(co)
+      if (new Date(co.created_at) < new Date(b.desde)) b.desde = co.created_at
+    }
+    // comanda mais antiga primeiro (FIFO — cozinha faz por ordem de chegada)
+    return [...map.values()].sort((a, b) => new Date(a.desde) - new Date(b.desde))
+  }, [consumos, reprsCozinha, nomePorCliente])
+
+  const prontosHoje = useMemo(
+    () =>
+      consumos
+        .filter(
+          (co) =>
+            reprsCozinha.has(co.beer_nome) &&
+            co.pronto_em &&
+            new Date(co.pronto_em).getTime() >= hojeIni
+        )
+        .sort((a, b) => new Date(b.pronto_em) - new Date(a.pronto_em)),
+    [consumos, reprsCozinha]
+  )
+
+  async function marcar(ids, pronto) {
+    const val = pronto ? new Date().toISOString() : null
+    const antes = new Map(
+      consumos.filter((c) => ids.includes(c.id)).map((c) => [c.id, c.pronto_em])
+    )
+    setConsumos((cs) =>
+      cs.map((c) => (ids.includes(c.id) ? { ...c, pronto_em: val } : c))
+    )
+    const { error } = await supabase.from('consumos').update({ pronto_em: val }).in('id', ids)
+    if (error) {
+      setConsumos((cs) =>
+        cs.map((c) => (ids.includes(c.id) ? { ...c, pronto_em: antes.get(c.id) ?? null } : c))
+      )
+      onErro('⚠️ Não consegui atualizar. Rodou o SQL da Cozinha?')
+    }
+  }
+
+  async function toggleCozinha(c) {
+    const novo = !c.vai_cozinha
+    const { error } = await supabase.from('cervejas').update({ vai_cozinha: novo }).eq('id', c.id)
+    if (error) return onErro('⚠️ Não salvou. Rodou o SQL da Cozinha?')
+    setCervejas((cs) => cs.map((x) => (x.id === c.id ? { ...x, vai_cozinha: novo } : x)))
+  }
+
+  return (
+    <main className="conteudo">
+      {reprsCozinha.size === 0 && !verConfig && (
+        <p className="est-aviso">
+          Nenhum produto marcado como "vai pra cozinha" ainda. Abra{' '}
+          <b>Configurar</b> aqui embaixo e marque os que o cozinheiro prepara
+          (espetinho, porção…).
+        </p>
+      )}
+
+      {reprsCozinha.size > 0 && fila.length === 0 && (
+        <p className="vazio">Nenhum pedido na fila. Tudo em dia! 🍳</p>
+      )}
+
+      <div className="coz-fila">
+        {fila.map((b) => (
+          <div key={b.id} className="coz-card">
+            <div className="coz-cab">
+              <span className="coz-mesa">{b.nome}</span>
+              <span className="coz-tempo">🕐 {haQuanto(b.desde)}</span>
+            </div>
+            <div className="coz-itens">
+              {b.itens.map((co) => (
+                <button
+                  key={co.id}
+                  className="coz-item"
+                  onClick={() => marcar([co.id], true)}
+                >
+                  <span className="coz-qtd">{co.quantidade}×</span>
+                  <span className="coz-nome">{co.beer_nome}</span>
+                  <span className="coz-check">✓ Pronto</span>
+                </button>
+              ))}
+            </div>
+            {b.itens.length > 1 && (
+              <button
+                className="coz-tudo"
+                onClick={() => marcar(b.itens.map((c) => c.id), true)}
+              >
+                ✓ Tudo pronto
+              </button>
+            )}
+          </div>
+        ))}
+      </div>
+
+      {prontosHoje.length > 0 && (
+        <div className="coz-extra">
+          <button className="coz-extra-cab" onClick={() => setVerProntos((v) => !v)}>
+            {verProntos ? '▾' : '›'} Prontos hoje ({prontosHoje.length})
+          </button>
+          {verProntos && (
+            <div className="coz-extra-lista">
+              {prontosHoje.map((co) => (
+                <div key={co.id} className="coz-pronto-linha">
+                  <span>
+                    {co.quantidade}× {co.beer_nome} —{' '}
+                    {nomePorCliente.get(co.cliente_id) || 'Comanda'}
+                  </span>
+                  <button className="coz-reabrir" onClick={() => marcar([co.id], false)}>
+                    ↩ voltar
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      <div className="coz-extra">
+        <button className="coz-extra-cab" onClick={() => setVerConfig((v) => !v)}>
+          {verConfig ? '▾' : '⚙️'} Configurar — o que vai pra cozinha
+        </button>
+        {verConfig && (
+          <div className="coz-config-lista">
+            {cervejas.length === 0 && (
+              <p className="vazio">Cadastre produtos na aba Produtos primeiro.</p>
+            )}
+            {cervejas.map((c) => (
+              <label key={c.id} className="coz-config-item">
+                <input
+                  type="checkbox"
+                  checked={!!c.vai_cozinha}
+                  onChange={() => toggleCozinha(c)}
+                />
+                <span>{reprDe(c)}</span>
+              </label>
+            ))}
+          </div>
+        )}
+      </div>
     </main>
   )
 }

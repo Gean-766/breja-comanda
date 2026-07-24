@@ -1310,6 +1310,145 @@ input[type='number'] {
   font-weight: 900;
 }
 
+/* ===== Módulo Cozinha ===== */
+.coz-fila {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.coz-card {
+  background: var(--card);
+  border-radius: 14px;
+  border-left: 5px solid var(--accent);
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.coz-cab {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+.coz-mesa {
+  font-size: 19px;
+  font-weight: 900;
+}
+.coz-tempo {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--muted);
+}
+.coz-itens {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.coz-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  text-align: left;
+  border: none;
+  border-radius: 11px;
+  background: var(--bg);
+  color: var(--text);
+  padding: 12px 12px;
+}
+.coz-qtd {
+  font-size: 18px;
+  font-weight: 900;
+  color: var(--accent);
+  flex-shrink: 0;
+}
+.coz-nome {
+  flex: 1;
+  min-width: 0;
+  font-size: 16px;
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.coz-check {
+  flex-shrink: 0;
+  font-size: 14px;
+  font-weight: 800;
+  color: #06210f;
+  background: var(--accent2);
+  border-radius: 999px;
+  padding: 7px 12px;
+}
+.coz-tudo {
+  align-self: flex-end;
+  border: none;
+  border-radius: 10px;
+  background: var(--accent2);
+  color: #06210f;
+  font-size: 14px;
+  font-weight: 800;
+  padding: 9px 14px;
+}
+.coz-extra {
+  margin-top: 14px;
+}
+.coz-extra-cab {
+  width: 100%;
+  text-align: left;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 700;
+  padding: 8px 2px;
+}
+.coz-extra-lista,
+.coz-config-lista {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 6px;
+}
+.coz-pronto-linha {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  background: var(--card);
+  border-radius: 9px;
+  padding: 9px 12px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.coz-reabrir {
+  flex-shrink: 0;
+  border: none;
+  border-radius: 8px;
+  background: var(--card2);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 700;
+  padding: 6px 10px;
+}
+.coz-config-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--card);
+  border-radius: 10px;
+  padding: 12px 14px;
+  font-size: 16px;
+  font-weight: 600;
+}
+.coz-config-item input {
+  width: 22px;
+  height: 22px;
+  accent-color: var(--accent);
+  flex-shrink: 0;
+}
+
 /* ===== Módulo Estoque ===== */
 .est-aviso {
   margin: -4px 0 14px;
