@@ -69,6 +69,8 @@ export default function App({ distribuidora = null, onSair = null }) {
   // abas extras que esse cliente contratou (vêm ligadas do painel CEO)
   const modulos = Array.isArray(distribuidora?.modulos) ? distribuidora.modulos : []
   const abasExtra = ORDEM_MODULOS.filter((k) => modulos.includes(k) && MODULOS[k])
+  // comanda por mesa (Mesa 3) ou por pessoa (Alex) — configurado no painel CEO
+  const modoMesa = distribuidora?.modo_comanda === 'mesa'
   const [aba, setAba] = useState('comandas') // núcleo: 'comandas' | 'cervejas' | 'historico' + módulos
   const [cervejas, setCervejas] = useState([])
   const [clientes, setClientes] = useState([])
@@ -249,8 +251,10 @@ export default function App({ distribuidora = null, onSair = null }) {
   )
 
   async function adicionarPessoa() {
-    const nome = novoNome.trim()
+    let nome = novoNome.trim()
     if (!nome) return
+    // no modo mesa, "3" vira "Mesa 3" (mas deixa passar texto livre tipo "Balcão")
+    if (modoMesa && /^\d+$/.test(nome)) nome = 'Mesa ' + nome
     const { data, error } = await supabase
       .from('clientes')
       .insert({ nome })
@@ -423,13 +427,14 @@ export default function App({ distribuidora = null, onSair = null }) {
           <div className="add-pessoa">
             <input
               className="campo"
-              placeholder="Nome da pessoa"
+              placeholder={modoMesa ? 'Nº da mesa (ex: 3)' : 'Nome da pessoa'}
+              inputMode={modoMesa ? 'numeric' : 'text'}
               value={novoNome}
               onChange={(e) => setNovoNome(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && adicionarPessoa()}
             />
             <button className="btn-grande" onClick={adicionarPessoa}>
-              + Nova
+              {modoMesa ? '+ Mesa' : '+ Nova'}
             </button>
           </div>
 
@@ -437,7 +442,7 @@ export default function App({ distribuidora = null, onSair = null }) {
             <div className="busca-wrap">
               <input
                 className="campo busca"
-                placeholder="🔎 Procurar nome…"
+                placeholder={modoMesa ? '🔎 Procurar mesa…' : '🔎 Procurar nome…'}
                 value={busca}
                 onChange={(e) => setBusca(e.target.value)}
               />
@@ -454,7 +459,11 @@ export default function App({ distribuidora = null, onSair = null }) {
           )}
 
           {clientesFiltrados.length === 0 && (
-            <p className="vazio">Nenhuma comanda aberta. Adicione uma pessoa acima.</p>
+            <p className="vazio">
+              {modoMesa
+                ? 'Nenhuma mesa aberta. Abra uma mesa acima.'
+                : 'Nenhuma comanda aberta. Adicione uma pessoa acima.'}
+            </p>
           )}
 
           <div className="lista">
