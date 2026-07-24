@@ -42,12 +42,34 @@ const PALETA = [
   '#1566c0', '#7b2ff7', '#e0533d', '#0c9c8f', '#555560',
 ]
 
+// Módulos opcionais. O núcleo — Comandas, Produtos, Histórico — todo cliente tem.
+// Estes ligam/desligam por distribuidora, marcados no painel CEO (coluna `modulos`).
+// As chaves aqui têm que bater com as do painel (index.html do ceo-comanda).
+const MODULOS = {
+  estoque: {
+    id: 'estoque', label: 'Estoque', icone: '📦',
+    resumo: 'Entrada e saída de mercadoria, custo por caixa e aviso de estoque baixo.',
+  },
+  relatorio: {
+    id: 'relatorio', label: 'Relatório', icone: '📊',
+    resumo: 'Quanto vendeu no dia e na semana, produtos que mais saem e faturamento.',
+  },
+  cozinha: {
+    id: 'cozinha', label: 'Cozinha', icone: '🍳',
+    resumo: 'O pedido do garçom cai numa tela na cozinha e o cozinheiro marca "pronto".',
+  },
+}
+const ORDEM_MODULOS = ['estoque', 'relatorio', 'cozinha']
+
 // `distribuidora` e `onSair` vêm do Portao.jsx (quem já passou pelo login).
 // O RLS do banco já isola os dados por distribuidora; os filtros por
 // distribuidora_id aqui embaixo são só uma segunda tranca.
 export default function App({ distribuidora = null, onSair = null }) {
   const donoId = distribuidora?.id || null
-  const [aba, setAba] = useState('comandas') // 'comandas' | 'cervejas' | 'historico'
+  // abas extras que esse cliente contratou (vêm ligadas do painel CEO)
+  const modulos = Array.isArray(distribuidora?.modulos) ? distribuidora.modulos : []
+  const abasExtra = ORDEM_MODULOS.filter((k) => modulos.includes(k) && MODULOS[k])
+  const [aba, setAba] = useState('comandas') // núcleo: 'comandas' | 'cervejas' | 'historico' + módulos
   const [cervejas, setCervejas] = useState([])
   const [clientes, setClientes] = useState([])
   const [consumos, setConsumos] = useState([])
@@ -373,6 +395,15 @@ export default function App({ distribuidora = null, onSair = null }) {
           >
             Histórico
           </button>
+          {abasExtra.map((k) => (
+            <button
+              key={k}
+              className={aba === k ? 'aba on' : 'aba'}
+              onClick={() => setAba(k)}
+            >
+              {MODULOS[k].label}
+            </button>
+          ))}
         </nav>
       </header>
 
@@ -443,6 +474,10 @@ export default function App({ distribuidora = null, onSair = null }) {
 
       {aba === 'historico' && (
         <AbaHistorico historico={historico} onReverter={reverter} />
+      )}
+
+      {abasExtra.includes(aba) && MODULOS[aba] && (
+        <ModuloEmBreve mod={MODULOS[aba]} />
       )}
 
       {clienteAberto && (
@@ -1341,6 +1376,22 @@ function AbaHistorico({ historico, onReverter }) {
             </div>
           )
         })()}
+    </main>
+  )
+}
+
+// Módulo ligado no painel, mas a tela ainda vai ser construída. Mostra o que ele
+// vai fazer pra não ficar um branco. Quando o módulo real ficar pronto, ele
+// substitui isto aqui (o encanamento — abas + coluna `modulos` — já fica de pé).
+function ModuloEmBreve({ mod }) {
+  return (
+    <main className="conteudo">
+      <div className="modulo-embreve">
+        <span className="me-icone">{mod.icone}</span>
+        <h3 className="me-titulo">{mod.label}</h3>
+        <span className="me-tag">Em construção</span>
+        <p className="me-texto">{mod.resumo}</p>
+      </div>
     </main>
   )
 }

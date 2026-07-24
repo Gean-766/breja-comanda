@@ -1309,3 +1309,43 @@ input[type='number'] {
   font-size: 20px;
   font-weight: 900;
 }
+
+/* ===== Módulo ligado mas ainda em construção ===== */
+.modulo-embreve {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 10px;
+  margin: 24px auto 0;
+  max-width: 420px;
+  padding: 32px 22px;
+  background: var(--card);
+  border: 2px dashed var(--card2);
+  border-radius: 18px;
+}
+.me-icone {
+  font-size: 46px;
+  line-height: 1;
+}
+.me-titulo {
+  margin: 4px 0 0;
+  font-size: 22px;
+  font-weight: 800;
+}
+.me-tag {
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--accent-dark);
+  background: var(--accent);
+  border-radius: 999px;
+  padding: 5px 12px;
+}
+.me-texto {
+  margin: 6px 0 0;
+  font-size: 15px;
+  line-height: 1.5;
+  color: var(--muted);
+}
