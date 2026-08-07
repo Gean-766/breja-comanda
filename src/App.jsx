@@ -1607,14 +1607,8 @@ function AbaEstoque({ cervejas, setCervejas, entradas, setEntradas, consumos, on
   const [nQtd, setNQtd] = useState('')
   const [nUnid, setNUnid] = useState('') // unidades por caixa (só no modo caixas)
   const [busca, setBusca] = useState('')
-  const [pastasAbertas, setPastasAbertas] = useState(() => new Set())
+  const [pastaAberta, setPastaAberta] = useState(null) // pasta em foco (drill-down)
   const [pastasCustom, setPastasCustom] = useState([]) // pastas criadas nesta sessão
-  const togglePasta = (label) =>
-    setPastasAbertas((s) => {
-      const n = new Set(s)
-      n.has(label) ? n.delete(label) : n.add(label)
-      return n
-    })
   const reprDe = (c) => (c.tamanho ? `${c.nome} ${c.tamanho}` : c.nome)
 
   function abrirForm(pasta) {
@@ -1624,7 +1618,7 @@ function AbaEstoque({ cervejas, setCervejas, entradas, setEntradas, consumos, on
     setNQtd('')
     setNUnid('')
     setNModo('caixas')
-    setPastasAbertas((s) => new Set(s).add(pasta))
+    setPastaAberta(pasta) // entra na pasta pra cadastrar dentro dela
   }
   function novaPasta() {
     const nome = (prompt('Nome da nova pasta (ex: Doses, Porções, Gelo):') || '').trim()
@@ -1895,18 +1889,52 @@ function AbaEstoque({ cervejas, setCervejas, entradas, setEntradas, consumos, on
     </div>
   )
 
+  const pastaFoco = pastaAberta ? pastas.find((p) => p.label === pastaAberta) : null
+  const itensFoco = pastaFoco ? pastaFoco.itens : []
+
+  if (pastaAberta) {
+    // ---------- DETALHE: só a pasta escolhida ----------
+    return (
+      <main className="conteudo">
+        <div className="est-nav">
+          <button
+            className="est-voltar"
+            onClick={() => {
+              setPastaAberta(null)
+              setNovoPasta(null)
+            }}
+          >
+            ‹ Voltar
+          </button>
+          <span className="est-nav-tit">
+            {iconePasta(pastaAberta)} {pastaAberta}
+          </span>
+        </div>
+
+        {itensFoco.length > 0 && (
+          <div className="est-lista">{itensFoco.map(renderCard)}</div>
+        )}
+        {itensFoco.length === 0 && novoPasta !== pastaAberta && (
+          <p className="est-pasta-vazia">Pasta vazia — adicione o primeiro produto.</p>
+        )}
+
+        {novoPasta === pastaAberta ? (
+          renderForm()
+        ) : (
+          <button className="est-add-pasta" onClick={() => abrirForm(pastaAberta)}>
+            + Adicionar produto
+          </button>
+        )}
+      </main>
+    )
+  }
+
+  // ---------- LISTA DE PASTAS (ou busca) ----------
   return (
     <main className="conteudo">
       <button className="est-novo-btn" onClick={novaPasta}>
         + Nova pasta
       </button>
-
-      {cervejas.length === 0 && pastas.length === 0 && (
-        <p className="vazio">
-          Ainda sem produtos. Crie uma <b>pasta</b> (ex: Cerveja) e adicione os
-          produtos dentro dela.
-        </p>
-      )}
 
       {cervejas.length > 3 && (
         <div className="busca-wrap est-busca">
@@ -1935,49 +1963,34 @@ function AbaEstoque({ cervejas, setCervejas, entradas, setEntradas, consumos, on
           )}
           {listaFiltrada.map(renderCard)}
         </div>
+      ) : pastas.length === 0 ? (
+        <p className="vazio">
+          Ainda sem produtos. Crie uma <b>pasta</b> (ex: Cerveja) e adicione os
+          produtos dentro dela.
+        </p>
       ) : (
-        <div className="est-pastas">
-          {pastas.map((p) => {
-            const aberta = pastas.length === 1 || pastasAbertas.has(p.label)
-            return (
-              <div key={p.label} className={'est-pasta' + (aberta ? ' on' : '')}>
-                <button className="est-pasta-cab" onClick={() => togglePasta(p.label)}>
-                  <span className="est-pasta-nome">
-                    {p.icone} {p.label}
-                  </span>
-                  {p.alertas > 0 && (
-                    <span className="est-pasta-alerta">
-                      {p.alertas} baixo{p.alertas > 1 ? 's' : ''}
-                    </span>
-                  )}
-                  <span className="est-pasta-cont">{p.itens.length}</span>
-                  <span className="est-pasta-seta">{aberta ? '▾' : '›'}</span>
-                </button>
-                {aberta && (
-                  <div className="est-pasta-corpo">
-                    {p.itens.length > 0 && (
-                      <div className="est-lista">{p.itens.map(renderCard)}</div>
-                    )}
-                    {p.itens.length === 0 && novoPasta !== p.label && (
-                      <p className="est-pasta-vazia">
-                        Pasta vazia — adicione o primeiro produto.
-                      </p>
-                    )}
-                    {novoPasta === p.label ? (
-                      renderForm()
-                    ) : (
-                      <button
-                        className="est-add-pasta"
-                        onClick={() => abrirForm(p.label)}
-                      >
-                        + Adicionar em {p.label}
-                      </button>
-                    )}
-                  </div>
-                )}
+        <div className="est-folders">
+          {pastas.map((p) => (
+            <button
+              key={p.label}
+              className="est-folder"
+              onClick={() => setPastaAberta(p.label)}
+            >
+              <span className="est-folder-ic">{p.icone}</span>
+              <div className="est-folder-txt">
+                <span className="est-folder-nome">{p.label}</span>
+                <span className="est-folder-sub">
+                  {p.itens.length} produto{p.itens.length === 1 ? '' : 's'}
+                </span>
               </div>
-            )
-          })}
+              {p.alertas > 0 && (
+                <span className="est-pasta-alerta">
+                  {p.alertas} baixo{p.alertas > 1 ? 's' : ''}
+                </span>
+              )}
+              <span className="est-folder-seta">›</span>
+            </button>
+          ))}
         </div>
       )}
     </main>
@@ -1991,6 +2004,8 @@ function EstoqueCard({ it, aberto, onAbrir, onCampo, onAbastecer, onRemoverEntra
   const [modo, setModo] = useState(c.unidades_caixa ? 'caixas' : 'unidades')
   const [qtd, setQtd] = useState('')
   const reprDe = (x) => (x.tamanho ? `${x.nome} ${x.tamanho}` : x.nome)
+  const num = (v) => Number(String(v).replace(',', '.')) || 0
+  const unPorCaixa = Number(c.unidades_caixa) || 0
 
   const badge =
     nivel === 'novo'
@@ -2033,137 +2048,157 @@ function EstoqueCard({ it, aberto, onAbrir, onCampo, onAbastecer, onRemoverEntra
 
       {aberto && (
         <div className="est-corpo">
-          <div className="est-linha-campos">
-            <label className="est-campo">
-              <span>Custo da caixa</span>
-              <div className="est-inp">
-                <i>R$</i>
-                <input
-                  type="number"
-                  step="0.50"
-                  inputMode="decimal"
-                  defaultValue={c.custo_caixa ?? ''}
-                  placeholder="0,00"
-                  onBlur={(e) => onCampo(c, 'custo_caixa', e.target.value)}
-                />
+          {/* ---- Chegou mercadoria / contagem (ação principal) ---- */}
+          <div className="est-secao">
+            <span className="est-secao-tit">
+              📥 {controlado ? 'Chegou mais mercadoria?' : 'Contar o que tem hoje'}
+            </span>
+            <div className="est-abastecer">
+              <div className="est-modo">
+                <button
+                  className={modo === 'caixas' ? 'on' : ''}
+                  onClick={() => setModo('caixas')}
+                >
+                  Caixas
+                </button>
+                <button
+                  className={modo === 'unidades' ? 'on' : ''}
+                  onClick={() => setModo('unidades')}
+                >
+                  Unidades
+                </button>
               </div>
-            </label>
-            <label className="est-campo">
-              <span>Unid. por caixa</span>
-              <div className="est-inp">
-                <input
-                  type="number"
-                  step="1"
-                  inputMode="numeric"
-                  defaultValue={c.unidades_caixa ?? ''}
-                  placeholder="12"
-                  onBlur={(e) => onCampo(c, 'unidades_caixa', e.target.value)}
-                />
-              </div>
-            </label>
+              <input
+                className="est-qtd"
+                type="number"
+                step="1"
+                inputMode="numeric"
+                placeholder={modo === 'caixas' ? 'nº de caixas' : 'nº de unidades'}
+                value={qtd}
+                onChange={(e) => setQtd(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && registrar()}
+              />
+              <button className="est-add" onClick={registrar}>
+                {controlado ? '+ Entrada' : '✓ Contar'}
+              </button>
+            </div>
+            {modo === 'caixas' && unPorCaixa > 0 && num(qtd) > 0 && (
+              <p className="est-preview">
+                = <b>{Math.round(num(qtd) * unPorCaixa)} unidades</b> ({qtd} × {unPorCaixa} por caixa)
+              </p>
+            )}
+            {modo === 'caixas' && unPorCaixa === 0 && (
+              <p className="est-preview est-preview-aviso">
+                Preencha “Unid. por caixa” aqui embaixo pra somar por caixa.
+              </p>
+            )}
+            {!controlado && (
+              <p className="est-dica">
+                Conte o que tem no estoque agora. A partir daí cada venda desconta sozinho.
+              </p>
+            )}
           </div>
 
-          <div className="est-linha-campos est-linha-2">
-            <div className="est-custo-unit">
-              {custoUnit != null ? (
-                <>
-                  Custo por unidade: <b>{money(custoUnit)}</b>
-                </>
-              ) : (
-                'Preencha custo e unidades pra ver o custo unitário (e o lucro no Relatório).'
+          {/* ---- Movimento ---- */}
+          {controlado && (
+            <div className="est-secao">
+              <span className="est-secao-tit">📊 Movimento</span>
+              <div className="est-stats">
+                <div>
+                  <span>Entrou</span>
+                  <b>{entrou}</b>
+                </div>
+                <div>
+                  <span>Saiu</span>
+                  <b>{saiu}</b>
+                </div>
+                <div>
+                  <span>Saldo</span>
+                  <b>{saldo}</b>
+                </div>
+              </div>
+              {ents.length > 0 && (
+                <div className="est-entradas">
+                  <span className="est-entradas-tit">Últimas entradas</span>
+                  {ents.slice(0, 4).map((e) => (
+                    <div key={e.id} className="est-ent-linha">
+                      <span className="est-ent-un">
+                        +{e.unidades} un.{e.caixas ? ` (${e.caixas} cx)` : ''}
+                      </span>
+                      <span className="est-ent-data">
+                        {new Date(e.created_at).toLocaleDateString('pt-BR')}
+                      </span>
+                      <button
+                        className="est-ent-x"
+                        onClick={() => onRemoverEntrada(e.id)}
+                        aria-label="Apagar entrada"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  ))}
+                </div>
               )}
             </div>
-            <label className="est-campo est-campo-min">
-              <span>Avisar quando ≤</span>
-              <div className="est-inp">
-                <input
-                  type="number"
-                  step="1"
-                  inputMode="numeric"
-                  defaultValue={c.estoque_min ?? ''}
-                  placeholder="0"
-                  onBlur={(e) => onCampo(c, 'estoque_min', e.target.value)}
-                />
-              </div>
-            </label>
-          </div>
-
-          <div className="est-abastecer">
-            <div className="est-modo">
-              <button
-                className={modo === 'caixas' ? 'on' : ''}
-                onClick={() => setModo('caixas')}
-              >
-                Caixas
-              </button>
-              <button
-                className={modo === 'unidades' ? 'on' : ''}
-                onClick={() => setModo('unidades')}
-              >
-                Unidades
-              </button>
-            </div>
-            <input
-              className="est-qtd"
-              type="number"
-              step="1"
-              inputMode="numeric"
-              placeholder={modo === 'caixas' ? 'nº de caixas' : 'nº de unidades'}
-              value={qtd}
-              onChange={(e) => setQtd(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && registrar()}
-            />
-            <button className="est-add" onClick={registrar}>
-              {controlado ? '+ Entrada' : '✓ Contar'}
-            </button>
-          </div>
-
-          {!controlado && (
-            <p className="est-dica">
-              Primeira vez: conte o que tem no estoque agora e registre. Isso vira o
-              ponto de partida — a partir daí cada venda desconta.
-            </p>
           )}
 
-          {controlado && (
-            <div className="est-stats">
-              <div>
-                <span>Entrou</span>
-                <b>{entrou}</b>
-              </div>
-              <div>
-                <span>Saiu</span>
-                <b>{saiu}</b>
-              </div>
-              <div>
-                <span>Saldo</span>
-                <b>{saldo}</b>
-              </div>
-            </div>
-          )}
-
-          {ents.length > 0 && (
-            <div className="est-entradas">
-              <span className="est-entradas-tit">Últimas entradas</span>
-              {ents.slice(0, 4).map((e) => (
-                <div key={e.id} className="est-ent-linha">
-                  <span className="est-ent-un">
-                    +{e.unidades} un.{e.caixas ? ` (${e.caixas} cx)` : ''}
-                  </span>
-                  <span className="est-ent-data">
-                    {new Date(e.created_at).toLocaleDateString('pt-BR')}
-                  </span>
-                  <button
-                    className="est-ent-x"
-                    onClick={() => onRemoverEntrada(e.id)}
-                    aria-label="Apagar entrada"
-                  >
-                    ✕
-                  </button>
+          {/* ---- Custo e aviso ---- */}
+          <div className="est-secao">
+            <span className="est-secao-tit">💰 Custo e aviso</span>
+            <div className="est-linha-campos">
+              <label className="est-campo">
+                <span>Custo da caixa</span>
+                <div className="est-inp">
+                  <i>R$</i>
+                  <input
+                    type="number"
+                    step="0.50"
+                    inputMode="decimal"
+                    defaultValue={c.custo_caixa ?? ''}
+                    placeholder="0,00"
+                    onBlur={(e) => onCampo(c, 'custo_caixa', e.target.value)}
+                  />
                 </div>
-              ))}
+              </label>
+              <label className="est-campo">
+                <span>Unid. por caixa</span>
+                <div className="est-inp">
+                  <input
+                    type="number"
+                    step="1"
+                    inputMode="numeric"
+                    defaultValue={c.unidades_caixa ?? ''}
+                    placeholder="12"
+                    onBlur={(e) => onCampo(c, 'unidades_caixa', e.target.value)}
+                  />
+                </div>
+              </label>
             </div>
-          )}
+            <div className="est-linha-campos est-linha-2">
+              <div className="est-custo-unit">
+                {custoUnit != null ? (
+                  <>
+                    Custo por unidade: <b>{money(custoUnit)}</b>
+                  </>
+                ) : (
+                  'Preencha custo e unidades pra ver o custo por unidade (e o lucro no Relatório).'
+                )}
+              </div>
+              <label className="est-campo est-campo-min">
+                <span>Avisar quando ≤</span>
+                <div className="est-inp">
+                  <input
+                    type="number"
+                    step="1"
+                    inputMode="numeric"
+                    defaultValue={c.estoque_min ?? ''}
+                    placeholder="0"
+                    onBlur={(e) => onCampo(c, 'estoque_min', e.target.value)}
+                  />
+                </div>
+              </label>
+            </div>
+          </div>
         </div>
       )}
     </div>
