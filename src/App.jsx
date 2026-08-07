@@ -686,6 +686,7 @@ function Detalhe({ cliente, cervejas, consumos, resumo, onAdd, onRemove, onFecha
   const [ultimoTocado, setUltimoTocado] = useState(null) // só p/ a animação
   const [mostrarResumo, setMostrarResumo] = useState(false)
   const [confirmar, setConfirmar] = useState(null) // produto aguardando confirmação
+  const [confPagto, setConfPagto] = useState(false) // confirmação de pagamento ao fechar
 
   const reprDe = (c) => (c.tamanho ? `${c.nome} ${c.tamanho}` : c.nome)
 
@@ -878,13 +879,7 @@ function Detalhe({ cliente, cervejas, consumos, resumo, onAdd, onRemove, onFecha
               📋 Resumo
             </button>
           </div>
-          <button
-            className="btn-pagar"
-            onClick={() => {
-              if (confirm(`Fechar e marcar como PAGO a conta de ${cliente.nome}?`))
-                onFechar(cliente.id)
-            }}
-          >
+          <button className="btn-pagar" onClick={() => setConfPagto(true)}>
             ✓ Pagar / Fechar
           </button>
         </footer>
@@ -912,6 +907,21 @@ function Detalhe({ cliente, cervejas, consumos, resumo, onAdd, onRemove, onFecha
               onClick={() => setMostrarResumo(false)}
             >
               Fechar
+            </button>
+          </div>
+        </div>
+      )}
+
+      {confPagto && (
+        <div className="pag-overlay" onClick={() => setConfPagto(false)}>
+          <div className="pag-box" onClick={(e) => e.stopPropagation()}>
+            <p className="pag-titulo">Confirmar pagamento de {cliente.nome}?</p>
+            <strong className="pag-total">{money(resumo.total)}</strong>
+            <button className="pag-confirmar" onClick={() => onFechar(cliente.id)}>
+              ✓ Confirmar pagamento
+            </button>
+            <button className="pag-cancelar" onClick={() => setConfPagto(false)}>
+              Cancelar
             </button>
           </div>
         </div>

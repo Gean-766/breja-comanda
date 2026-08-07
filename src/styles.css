@@ -2205,6 +2205,16 @@ input[type='number'] {
   font-weight: 700;
   padding: 13px;
 }
+.pag-confirmar {
+  width: 100%;
+  padding: 16px;
+  border: none;
+  border-radius: 14px;
+  background: var(--accent2);
+  color: #06210f;
+  font-size: 18px;
+  font-weight: 900;
+}
 .pag-cancelar {
   border: none;
   background: transparent;
