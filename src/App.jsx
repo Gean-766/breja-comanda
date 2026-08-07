@@ -1598,6 +1598,7 @@ function iconePasta(label) {
 
 function AbaEstoque({ cervejas, setCervejas, entradas, setEntradas, consumos, onErro, onLog }) {
   const [abertoId, setAbertoId] = useState(null)
+  const [vista, setVista] = useState('estoque') // 'estoque' (visão geral) | 'cadastro'
   // formulário de novo produto — novoPasta guarda EM QUAL pasta estou adicionando
   // (null = form fechado). Cadastra o produto e já conta o estoque, num lugar só.
   const [novoPasta, setNovoPasta] = useState(null)
@@ -1640,14 +1641,14 @@ function AbaEstoque({ cervejas, setCervejas, entradas, setEntradas, consumos, on
     const preco = num(nPreco) // preço da unidade (o que aparece na comanda)
     const qtdNum = num(nQtd)
 
+    // unidades por caixa é uma propriedade do produto (usada no custo e na conversão)
+    const unPorCaixa = nUnid.trim() ? Math.round(num(nUnid)) : null
     // converte o que chegou pra unidades (o estoque é sempre contado por unidade)
     let unidades = 0
     let caixas = null
-    let unPorCaixa = null
     if (nModo === 'caixas') {
       if (qtdNum > 0) {
-        unPorCaixa = nUnid.trim() ? Math.round(num(nUnid)) : 0
-        if (!unPorCaixa) return onErro('Diga quantas unidades vêm em cada caixa.')
+        if (!unPorCaixa) return onErro('Diga quantas unidades vêm na caixa.')
         caixas = qtdNum
         unidades = Math.round(qtdNum * unPorCaixa)
       }
@@ -1848,7 +1849,61 @@ function AbaEstoque({ cervejas, setCervejas, entradas, setEntradas, consumos, on
         value={nNome}
         onChange={(e) => setNNome(e.target.value)}
       />
-      <span className="est-novo-lbl">Quanto chegou</span>
+
+      <label className="est-novo-linha">
+        <span>Quantos custou essa caixa?</span>
+        <div className="prod-preco">
+          <span>R$</span>
+          <input
+            className="campo"
+            placeholder="0,00"
+            type="number"
+            step="0.50"
+            inputMode="decimal"
+            value={nCusto}
+            onChange={(e) => setNCusto(e.target.value)}
+          />
+        </div>
+      </label>
+      <label className="est-novo-linha">
+        <span>Quantas unidades vem na caixa?</span>
+        <input
+          className="campo est-novo-num"
+          placeholder="ex: 12"
+          type="number"
+          inputMode="numeric"
+          value={nUnid}
+          onChange={(e) => setNUnid(e.target.value)}
+        />
+      </label>
+      <label className="est-novo-linha">
+        <span>Vai vender por quantos a unidade?</span>
+        <div className="prod-preco">
+          <span>R$</span>
+          <input
+            className="campo"
+            placeholder="0,00"
+            type="number"
+            step="0.50"
+            inputMode="decimal"
+            value={nPreco}
+            onChange={(e) => setNPreco(e.target.value)}
+          />
+        </div>
+      </label>
+      <label className="est-novo-linha">
+        <span>Vou avisar quando o estoque estiver com</span>
+        <input
+          className="campo est-novo-num"
+          placeholder="ex: 12"
+          type="number"
+          inputMode="numeric"
+          value={nAviso}
+          onChange={(e) => setNAviso(e.target.value)}
+        />
+      </label>
+
+      <span className="est-novo-lbl">Quanto chegou agora</span>
       <div className="est-novo-qtd">
         <input
           className="campo est-novo-q"
@@ -1867,62 +1922,6 @@ function AbaEstoque({ cervejas, setCervejas, entradas, setEntradas, consumos, on
           </button>
         </div>
       </div>
-      {nModo === 'caixas' && (
-        <label className="est-novo-linha">
-          <span>Unidades por caixa</span>
-          <input
-            className="campo est-novo-num"
-            placeholder="ex: 12"
-            type="number"
-            inputMode="numeric"
-            value={nUnid}
-            onChange={(e) => setNUnid(e.target.value)}
-          />
-        </label>
-      )}
-      <label className="est-novo-linha">
-        <span>Preço da unidade</span>
-        <div className="prod-preco">
-          <span>R$</span>
-          <input
-            className="campo"
-            placeholder="0,00"
-            type="number"
-            step="0.50"
-            inputMode="decimal"
-            value={nPreco}
-            onChange={(e) => setNPreco(e.target.value)}
-          />
-        </div>
-      </label>
-
-      <span className="est-novo-lbl">Opcional — pra ver o lucro e o aviso de baixo</span>
-      <label className="est-novo-linha">
-        <span>Custo da caixa</span>
-        <div className="prod-preco">
-          <span>R$</span>
-          <input
-            className="campo"
-            placeholder="0,00"
-            type="number"
-            step="0.50"
-            inputMode="decimal"
-            value={nCusto}
-            onChange={(e) => setNCusto(e.target.value)}
-          />
-        </div>
-      </label>
-      <label className="est-novo-linha">
-        <span>Avisar quando ≤</span>
-        <input
-          className="campo est-novo-num"
-          placeholder="ex: 12"
-          type="number"
-          inputMode="numeric"
-          value={nAviso}
-          onChange={(e) => setNAviso(e.target.value)}
-        />
-      </label>
 
       <div className="est-novo-acoes">
         <button className="btn-grande" onClick={criarProduto}>
@@ -1975,12 +1974,32 @@ function AbaEstoque({ cervejas, setCervejas, entradas, setEntradas, consumos, on
     )
   }
 
-  // ---------- LISTA DE PASTAS (ou busca) ----------
+  // ---------- TOPO: Meu estoque (visão geral) | Cadastrar ----------
+  const overviewRows = busca.trim() ? listaFiltrada : lista
+  const nRepor = lista.filter((i) => i.nivel === 'zero' || i.nivel === 'baixo').length
+  const irPara = (it) => {
+    setBusca('')
+    setVista('cadastro')
+    setPastaAberta(pastaDe(it.c))
+    setAbertoId(it.c.id)
+  }
+
   return (
     <main className="conteudo">
-      <button className="est-novo-btn" onClick={novaPasta}>
-        + Nova pasta
-      </button>
+      <div className="est-vista">
+        <button
+          className={vista === 'estoque' ? 'on' : ''}
+          onClick={() => setVista('estoque')}
+        >
+          📊 Meu estoque
+        </button>
+        <button
+          className={vista === 'cadastro' ? 'on' : ''}
+          onClick={() => setVista('cadastro')}
+        >
+          ✏️ Cadastrar
+        </button>
+      </div>
 
       {cervejas.length > 3 && (
         <div className="busca-wrap est-busca">
@@ -2002,42 +2021,92 @@ function AbaEstoque({ cervejas, setCervejas, entradas, setEntradas, consumos, on
         </div>
       )}
 
-      {busca.trim() ? (
+      {vista === 'estoque' ? (
+        // ---------- VISÃO GERAL ----------
+        cervejas.length === 0 ? (
+          <p className="vazio">
+            Nenhum produto ainda. Toque em <b>✏️ Cadastrar</b> pra começar.
+          </p>
+        ) : (
+          <>
+            {!busca.trim() && (
+              <div className="est-vg-resumo">
+                <div>
+                  <b>{lista.length}</b>
+                  <span>produtos</span>
+                </div>
+                <div className={nRepor > 0 ? 'est-vg-repor' : ''}>
+                  <b>{nRepor}</b>
+                  <span>pra repor</span>
+                </div>
+              </div>
+            )}
+            {overviewRows.length === 0 ? (
+              <p className="vazio">Nenhum produto com esse nome.</p>
+            ) : (
+              <div className="est-vg-lista">
+                {overviewRows.map((it) => (
+                  <button
+                    key={it.c.id}
+                    className="est-vg-row"
+                    onClick={() => irPara(it)}
+                  >
+                    <span className={'est-vg-status est-' + it.nivel} />
+                    <span className="est-vg-nome">{reprDe(it.c)}</span>
+                    <span className={'est-vg-saldo est-' + it.nivel}>
+                      {it.controlado ? it.saldo : '—'}
+                      <small> un.</small>
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </>
+        )
+      ) : // ---------- CADASTRAR ----------
+      busca.trim() ? (
         <div className="est-lista">
           {listaFiltrada.length === 0 && (
             <p className="vazio">Nenhum produto com esse nome.</p>
           )}
           {listaFiltrada.map(renderCard)}
         </div>
-      ) : pastas.length === 0 ? (
-        <p className="vazio">
-          Ainda sem produtos. Crie uma <b>pasta</b> (ex: Cerveja) e adicione os
-          produtos dentro dela.
-        </p>
       ) : (
-        <div className="est-folders">
-          {pastas.map((p) => (
-            <button
-              key={p.label}
-              className="est-folder"
-              onClick={() => setPastaAberta(p.label)}
-            >
-              <span className="est-folder-ic">{p.icone}</span>
-              <div className="est-folder-txt">
-                <span className="est-folder-nome">{p.label}</span>
-                <span className="est-folder-sub">
-                  {p.itens.length} produto{p.itens.length === 1 ? '' : 's'}
-                </span>
-              </div>
-              {p.alertas > 0 && (
-                <span className="est-pasta-alerta">
-                  {p.alertas} baixo{p.alertas > 1 ? 's' : ''}
-                </span>
-              )}
-              <span className="est-folder-seta">›</span>
-            </button>
-          ))}
-        </div>
+        <>
+          <button className="est-novo-btn" onClick={novaPasta}>
+            + Nova pasta
+          </button>
+          {pastas.length === 0 ? (
+            <p className="vazio">
+              Ainda sem produtos. Crie uma <b>pasta</b> (ex: Cerveja) e adicione os
+              produtos dentro dela.
+            </p>
+          ) : (
+            <div className="est-folders">
+              {pastas.map((p) => (
+                <button
+                  key={p.label}
+                  className="est-folder"
+                  onClick={() => setPastaAberta(p.label)}
+                >
+                  <span className="est-folder-ic">{p.icone}</span>
+                  <div className="est-folder-txt">
+                    <span className="est-folder-nome">{p.label}</span>
+                    <span className="est-folder-sub">
+                      {p.itens.length} produto{p.itens.length === 1 ? '' : 's'}
+                    </span>
+                  </div>
+                  {p.alertas > 0 && (
+                    <span className="est-pasta-alerta">
+                      {p.alertas} baixo{p.alertas > 1 ? 's' : ''}
+                    </span>
+                  )}
+                  <span className="est-folder-seta">›</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </>
       )}
     </main>
   )
