@@ -1606,6 +1606,8 @@ function AbaEstoque({ cervejas, setCervejas, entradas, setEntradas, consumos, on
   const [nModo, setNModo] = useState('caixas') // 'caixas' | 'unidades'
   const [nQtd, setNQtd] = useState('')
   const [nUnid, setNUnid] = useState('') // unidades por caixa (só no modo caixas)
+  const [nCusto, setNCusto] = useState('') // custo da caixa (opcional)
+  const [nAviso, setNAviso] = useState('') // avisar quando saldo <= X (opcional)
   const [busca, setBusca] = useState('')
   const [pastaAberta, setPastaAberta] = useState(null) // pasta em foco (drill-down)
   const [pastasCustom, setPastasCustom] = useState([]) // pastas criadas nesta sessão
@@ -1617,6 +1619,8 @@ function AbaEstoque({ cervejas, setCervejas, entradas, setEntradas, consumos, on
     setNPreco('')
     setNQtd('')
     setNUnid('')
+    setNCusto('')
+    setNAviso('')
     setNModo('caixas')
     setPastaAberta(pasta) // entra na pasta pra cadastrar dentro dela
   }
@@ -1651,8 +1655,18 @@ function AbaEstoque({ cervejas, setCervejas, entradas, setEntradas, consumos, on
       unidades = Math.round(qtdNum)
     }
 
+    const custo = nCusto.trim() ? num(nCusto) : null
+    const aviso = nAviso.trim() ? Math.round(num(nAviso)) : null
     const ordem = cervejas.reduce((m, c) => Math.max(m, c.ordem ?? 0), 0) + 1
-    const base = { nome, tamanho: '', preco, ordem, unidades_caixa: unPorCaixa }
+    const base = {
+      nome,
+      tamanho: '',
+      preco,
+      ordem,
+      unidades_caixa: unPorCaixa,
+      custo_caixa: custo,
+      estoque_min: aviso,
+    }
     // grava a pasta escolhida; se a coluna ainda não existe no banco, salva sem ela
     let res = await supabase.from('cervejas').insert({ ...base, categoria: novoPasta }).select().single()
     if (res.error && /categoria/i.test(res.error.message || '')) {
@@ -1666,6 +1680,7 @@ function AbaEstoque({ cervejas, setCervejas, entradas, setEntradas, consumos, on
     if (unidades > 0) {
       const linha = { cerveja_id: prod.id, unidades }
       if (caixas) linha.caixas = caixas
+      if (custo) linha.custo_caixa = custo
       const { data: ent } = await supabase.from('estoque_entradas').insert(linha).select().single()
       if (ent) setEntradas((es) => [ent, ...es])
     }
@@ -1674,6 +1689,8 @@ function AbaEstoque({ cervejas, setCervejas, entradas, setEntradas, consumos, on
     setNPreco('')
     setNQtd('')
     setNUnid('')
+    setNCusto('')
+    setNAviso('')
     setNModo('caixas')
     setNovoPasta(null)
   }
@@ -1878,6 +1895,35 @@ function AbaEstoque({ cervejas, setCervejas, entradas, setEntradas, consumos, on
           />
         </div>
       </label>
+
+      <span className="est-novo-lbl">Opcional — pra ver o lucro e o aviso de baixo</span>
+      <label className="est-novo-linha">
+        <span>Custo da caixa</span>
+        <div className="prod-preco">
+          <span>R$</span>
+          <input
+            className="campo"
+            placeholder="0,00"
+            type="number"
+            step="0.50"
+            inputMode="decimal"
+            value={nCusto}
+            onChange={(e) => setNCusto(e.target.value)}
+          />
+        </div>
+      </label>
+      <label className="est-novo-linha">
+        <span>Avisar quando ≤</span>
+        <input
+          className="campo est-novo-num"
+          placeholder="ex: 12"
+          type="number"
+          inputMode="numeric"
+          value={nAviso}
+          onChange={(e) => setNAviso(e.target.value)}
+        />
+      </label>
+
       <div className="est-novo-acoes">
         <button className="btn-grande" onClick={criarProduto}>
           ✓ Salvar
