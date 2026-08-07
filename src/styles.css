@@ -1640,10 +1640,47 @@ input[type='number'] {
   font-weight: 800;
   font-size: 14px;
 }
-.est-pasta .est-lista {
+.est-pasta-corpo {
   padding: 10px;
   background: var(--bg);
   border-radius: 0 0 12px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.est-add-pasta {
+  width: 100%;
+  padding: 12px;
+  border: 2px dashed var(--card2);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--accent);
+  font-size: 15px;
+  font-weight: 800;
+}
+.est-pasta-vazia {
+  margin: 0;
+  text-align: center;
+  color: var(--muted);
+  font-size: 13px;
+  padding: 4px;
+}
+.est-cab-row {
+  display: flex;
+  align-items: stretch;
+}
+.est-cab-row .est-cab {
+  flex: 1;
+  min-width: 0;
+}
+.est-card-x {
+  flex-shrink: 0;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font-size: 15px;
+  font-weight: 800;
+  padding: 0 15px;
 }
 .est-card {
   background: var(--card);

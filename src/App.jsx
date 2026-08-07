@@ -1599,10 +1599,23 @@ function categoriaDe(nome) {
   return 'outros'
 }
 
+// label da pasta de um produto: a que o lojista escolheu (c.categoria) ou,
+// se não escolheu, a adivinhada pelo nome.
+function pastaDe(c) {
+  if (c.categoria && c.categoria.trim()) return c.categoria.trim()
+  const cat = CATEGORIAS_ESTOQUE.find((x) => x.id === categoriaDe(c.nome))
+  return cat ? cat.label : 'Outros'
+}
+function iconePasta(label) {
+  const known = CATEGORIAS_ESTOQUE.find((c) => c.label === label)
+  return known ? known.icone : '🏷️'
+}
+
 function AbaEstoque({ cervejas, setCervejas, entradas, setEntradas, consumos, onErro, onLog }) {
   const [abertoId, setAbertoId] = useState(null)
-  // formulário de novo produto (cadastra o produto E já conta o estoque, num lugar só)
-  const [novo, setNovo] = useState(false)
+  // formulário de novo produto — novoPasta guarda EM QUAL pasta estou adicionando
+  // (null = form fechado). Cadastra o produto e já conta o estoque, num lugar só.
+  const [novoPasta, setNovoPasta] = useState(null)
   const [nNome, setNNome] = useState('')
   const [nPreco, setNPreco] = useState('')
   const [nModo, setNModo] = useState('caixas') // 'caixas' | 'unidades'
@@ -1610,13 +1623,30 @@ function AbaEstoque({ cervejas, setCervejas, entradas, setEntradas, consumos, on
   const [nUnid, setNUnid] = useState('') // unidades por caixa (só no modo caixas)
   const [busca, setBusca] = useState('')
   const [pastasAbertas, setPastasAbertas] = useState(() => new Set())
-  const togglePasta = (id) =>
+  const [pastasCustom, setPastasCustom] = useState([]) // pastas criadas nesta sessão
+  const togglePasta = (label) =>
     setPastasAbertas((s) => {
       const n = new Set(s)
-      n.has(id) ? n.delete(id) : n.add(id)
+      n.has(label) ? n.delete(label) : n.add(label)
       return n
     })
   const reprDe = (c) => (c.tamanho ? `${c.nome} ${c.tamanho}` : c.nome)
+
+  function abrirForm(pasta) {
+    setNovoPasta(pasta)
+    setNNome('')
+    setNPreco('')
+    setNQtd('')
+    setNUnid('')
+    setNModo('caixas')
+    setPastasAbertas((s) => new Set(s).add(pasta))
+  }
+  function novaPasta() {
+    const nome = (prompt('Nome da nova pasta (ex: Doses, Porções, Gelo):') || '').trim()
+    if (!nome) return
+    if (!pastasCustom.includes(nome)) setPastasCustom((p) => [...p, nome])
+    abrirForm(nome) // já abre o form pra cadastrar o 1º produto dessa pasta
+  }
 
   // cria o produto (aparece na hora nas comandas e no cadastro) e, se você
   // disse quanto tem, já lança a contagem inicial — daí o saldo passa a cair sozinho.
@@ -1643,12 +1673,14 @@ function AbaEstoque({ cervejas, setCervejas, entradas, setEntradas, consumos, on
     }
 
     const ordem = cervejas.reduce((m, c) => Math.max(m, c.ordem ?? 0), 0) + 1
-    const { data: prod, error } = await supabase
-      .from('cervejas')
-      .insert({ nome, tamanho: '', preco, ordem, unidades_caixa: unPorCaixa })
-      .select()
-      .single()
-    if (error || !prod) return onErro('⚠️ Não consegui salvar o produto. Tente de novo.')
+    const base = { nome, tamanho: '', preco, ordem, unidades_caixa: unPorCaixa }
+    // grava a pasta escolhida; se a coluna ainda não existe no banco, salva sem ela
+    let res = await supabase.from('cervejas').insert({ ...base, categoria: novoPasta }).select().single()
+    if (res.error && /categoria/i.test(res.error.message || '')) {
+      res = await supabase.from('cervejas').insert(base).select().single()
+    }
+    const prod = res.data
+    if (res.error || !prod) return onErro('⚠️ Não consegui salvar o produto. Tente de novo.')
     setCervejas((cs) => [...cs, prod])
     onLog?.('add_produto', `Adicionou produto: ${nome}`, { ids: [prod.id] })
 
@@ -1664,7 +1696,15 @@ function AbaEstoque({ cervejas, setCervejas, entradas, setEntradas, consumos, on
     setNQtd('')
     setNUnid('')
     setNModo('caixas')
-    setNovo(false)
+    setNovoPasta(null)
+  }
+
+  async function excluirProduto(c) {
+    if (!confirm(`Excluir ${reprDe(c)}? Ele some das comandas e do estoque.`)) return
+    const { error } = await supabase.from('cervejas').update({ ativo: false }).eq('id', c.id)
+    if (error) return onErro('⚠️ Não consegui excluir. Tente de novo.')
+    setCervejas((cs) => cs.filter((x) => x.id !== c.id))
+    onLog?.('remover_produto', `Removeu produto: ${reprDe(c)}`, { produto: c })
   }
 
   // saídas somadas por nome-de-produto, guardando o instante (pra cortar no "desde")
@@ -1725,20 +1765,29 @@ function AbaEstoque({ cervejas, setCervejas, entradas, setEntradas, consumos, on
     return lista.filter((it) => normalizar(reprDe(it.c)).includes(q))
   }, [lista, busca])
 
-  // pastas por categoria (só as que têm produto), com contagem de alertas
+  // pastas por label (as que têm produto + as criadas na sessão), com alertas.
+  // Conhecidas na ordem oficial; pastas criadas pelo lojista, depois, alfabético.
   const pastas = useMemo(() => {
     const map = new Map()
     for (const it of lista) {
-      const cat = categoriaDe(it.c.nome)
-      if (!map.has(cat)) map.set(cat, [])
-      map.get(cat).push(it)
+      const lbl = pastaDe(it.c)
+      if (!map.has(lbl)) map.set(lbl, [])
+      map.get(lbl).push(it)
     }
-    return CATEGORIAS_ESTOQUE.filter((c) => map.has(c.id)).map((c) => {
-      const itens = map.get(c.id)
-      const alertas = itens.filter((i) => i.nivel === 'zero' || i.nivel === 'baixo').length
-      return { ...c, itens, alertas }
+    for (const lbl of pastasCustom) if (!map.has(lbl)) map.set(lbl, [])
+    const ordemConhecida = CATEGORIAS_ESTOQUE.map((c) => c.label)
+    const labels = [...map.keys()].sort((a, b) => {
+      const ia = ordemConhecida.indexOf(a)
+      const ib = ordemConhecida.indexOf(b)
+      if (ia !== -1 || ib !== -1) return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib)
+      return a.localeCompare(b)
     })
-  }, [lista])
+    return labels.map((label) => {
+      const itens = map.get(label)
+      const alertas = itens.filter((i) => i.nivel === 'zero' || i.nivel === 'baixo').length
+      return { label, icone: iconePasta(label), itens, alertas }
+    })
+  }, [lista, pastasCustom])
 
   async function salvarCampo(c, campo, valor) {
     const txt = String(valor).trim()
@@ -1790,94 +1839,87 @@ function AbaEstoque({ cervejas, setCervejas, entradas, setEntradas, consumos, on
       onCampo={salvarCampo}
       onAbastecer={abastecer}
       onRemoverEntrada={removerEntrada}
+      onExcluir={() => excluirProduto(it.c)}
     />
+  )
+
+  // formulário de novo produto (aparece dentro da pasta que você escolheu)
+  const renderForm = () => (
+    <div className="est-novo">
+      <input
+        className="campo"
+        placeholder="Nome do produto (ex: Original 600)"
+        value={nNome}
+        onChange={(e) => setNNome(e.target.value)}
+      />
+      <span className="est-novo-lbl">Quanto chegou</span>
+      <div className="est-novo-qtd">
+        <input
+          className="campo est-novo-q"
+          placeholder={nModo === 'caixas' ? 'nº de caixas' : 'nº de unidades'}
+          type="number"
+          inputMode="numeric"
+          value={nQtd}
+          onChange={(e) => setNQtd(e.target.value)}
+        />
+        <div className="est-modo">
+          <button className={nModo === 'caixas' ? 'on' : ''} onClick={() => setNModo('caixas')}>
+            Caixas
+          </button>
+          <button className={nModo === 'unidades' ? 'on' : ''} onClick={() => setNModo('unidades')}>
+            Unidades
+          </button>
+        </div>
+      </div>
+      {nModo === 'caixas' && (
+        <label className="est-novo-linha">
+          <span>Unidades por caixa</span>
+          <input
+            className="campo est-novo-num"
+            placeholder="ex: 12"
+            type="number"
+            inputMode="numeric"
+            value={nUnid}
+            onChange={(e) => setNUnid(e.target.value)}
+          />
+        </label>
+      )}
+      <label className="est-novo-linha">
+        <span>Preço da unidade</span>
+        <div className="prod-preco">
+          <span>R$</span>
+          <input
+            className="campo"
+            placeholder="0,00"
+            type="number"
+            step="0.50"
+            inputMode="decimal"
+            value={nPreco}
+            onChange={(e) => setNPreco(e.target.value)}
+          />
+        </div>
+      </label>
+      <div className="est-novo-acoes">
+        <button className="btn-grande" onClick={criarProduto}>
+          ✓ Salvar
+        </button>
+        <button className="est-cancelar" onClick={() => setNovoPasta(null)}>
+          Cancelar
+        </button>
+      </div>
+    </div>
   )
 
   return (
     <main className="conteudo">
-      {novo ? (
-        <div className="est-novo">
-          <input
-            className="campo"
-            placeholder="Nome do produto (ex: Original 600)"
-            value={nNome}
-            onChange={(e) => setNNome(e.target.value)}
-          />
+      <button className="est-novo-btn" onClick={novaPasta}>
+        + Nova pasta
+      </button>
 
-          <span className="est-novo-lbl">Quanto chegou</span>
-          <div className="est-novo-qtd">
-            <input
-              className="campo est-novo-q"
-              placeholder={nModo === 'caixas' ? 'nº de caixas' : 'nº de unidades'}
-              type="number"
-              inputMode="numeric"
-              value={nQtd}
-              onChange={(e) => setNQtd(e.target.value)}
-            />
-            <div className="est-modo">
-              <button
-                className={nModo === 'caixas' ? 'on' : ''}
-                onClick={() => setNModo('caixas')}
-              >
-                Caixas
-              </button>
-              <button
-                className={nModo === 'unidades' ? 'on' : ''}
-                onClick={() => setNModo('unidades')}
-              >
-                Unidades
-              </button>
-            </div>
-          </div>
-          {nModo === 'caixas' && (
-            <label className="est-novo-linha">
-              <span>Unidades por caixa</span>
-              <input
-                className="campo est-novo-num"
-                placeholder="ex: 12"
-                type="number"
-                inputMode="numeric"
-                value={nUnid}
-                onChange={(e) => setNUnid(e.target.value)}
-              />
-            </label>
-          )}
-
-          <label className="est-novo-linha">
-            <span>Preço da unidade</span>
-            <div className="prod-preco">
-              <span>R$</span>
-              <input
-                className="campo"
-                placeholder="0,00"
-                type="number"
-                step="0.50"
-                inputMode="decimal"
-                value={nPreco}
-                onChange={(e) => setNPreco(e.target.value)}
-              />
-            </div>
-          </label>
-
-          <div className="est-novo-acoes">
-            <button className="btn-grande" onClick={criarProduto}>
-              ✓ Salvar
-            </button>
-            <button className="est-cancelar" onClick={() => setNovo(false)}>
-              Cancelar
-            </button>
-          </div>
-        </div>
-      ) : (
-        <button className="est-novo-btn" onClick={() => setNovo(true)}>
-          + Novo produto
-        </button>
-      )}
-
-      {cervejas.length === 0 && !novo && (
+      {cervejas.length === 0 && pastas.length === 0 && (
         <p className="vazio">
-          Nenhum produto ainda. Toque em <b>“+ Novo produto”</b> pra começar —
-          quando chegar mercadoria nova, é aqui que você cadastra e conta.
+          Ainda sem produtos. Crie uma <b>pasta</b> (ex: Cerveja) e adicione os
+          produtos dentro dela.
         </p>
       )}
 
@@ -1911,10 +1953,10 @@ function AbaEstoque({ cervejas, setCervejas, entradas, setEntradas, consumos, on
       ) : (
         <div className="est-pastas">
           {pastas.map((p) => {
-            const aberta = pastas.length === 1 || pastasAbertas.has(p.id)
+            const aberta = pastas.length === 1 || pastasAbertas.has(p.label)
             return (
-              <div key={p.id} className={'est-pasta' + (aberta ? ' on' : '')}>
-                <button className="est-pasta-cab" onClick={() => togglePasta(p.id)}>
+              <div key={p.label} className={'est-pasta' + (aberta ? ' on' : '')}>
+                <button className="est-pasta-cab" onClick={() => togglePasta(p.label)}>
                   <span className="est-pasta-nome">
                     {p.icone} {p.label}
                   </span>
@@ -1926,7 +1968,28 @@ function AbaEstoque({ cervejas, setCervejas, entradas, setEntradas, consumos, on
                   <span className="est-pasta-cont">{p.itens.length}</span>
                   <span className="est-pasta-seta">{aberta ? '▾' : '›'}</span>
                 </button>
-                {aberta && <div className="est-lista">{p.itens.map(renderCard)}</div>}
+                {aberta && (
+                  <div className="est-pasta-corpo">
+                    {p.itens.length > 0 && (
+                      <div className="est-lista">{p.itens.map(renderCard)}</div>
+                    )}
+                    {p.itens.length === 0 && novoPasta !== p.label && (
+                      <p className="est-pasta-vazia">
+                        Pasta vazia — adicione o primeiro produto.
+                      </p>
+                    )}
+                    {novoPasta === p.label ? (
+                      renderForm()
+                    ) : (
+                      <button
+                        className="est-add-pasta"
+                        onClick={() => abrirForm(p.label)}
+                      >
+                        + Adicionar em {p.label}
+                      </button>
+                    )}
+                  </div>
+                )}
               </div>
             )
           })}
@@ -1936,7 +1999,7 @@ function AbaEstoque({ cervejas, setCervejas, entradas, setEntradas, consumos, on
   )
 }
 
-function EstoqueCard({ it, aberto, onAbrir, onCampo, onAbastecer, onRemoverEntrada }) {
+function EstoqueCard({ it, aberto, onAbrir, onCampo, onAbastecer, onRemoverEntrada, onExcluir }) {
   const { c, controlado, entrou, saiu, saldo, custoUnit, nivel, ents } = it
   // começa em "unidades" enquanto não houver unid/caixa (assim o 1º uso — a
   // contagem inicial — funciona na hora); com caixa configurada, vai pra "caixas"
@@ -1961,22 +2024,27 @@ function EstoqueCard({ it, aberto, onAbrir, onCampo, onAbastecer, onRemoverEntra
 
   return (
     <div className={'est-card ' + badge.cls + (aberto ? ' on' : '')}>
-      <button className="est-cab" onClick={onAbrir}>
-        <div className="est-cab-txt">
-          <span className="est-nome">{reprDe(c)}</span>
-          <span className={'est-badge ' + badge.cls}>{badge.txt}</span>
-        </div>
-        <div className="est-saldo">
-          {controlado ? (
-            <>
-              <strong>{saldo}</strong>
-              <span>un.</span>
-            </>
-          ) : (
-            <span className="est-saldo-vazio">—</span>
-          )}
-        </div>
-      </button>
+      <div className="est-cab-row">
+        <button className="est-cab" onClick={onAbrir}>
+          <div className="est-cab-txt">
+            <span className="est-nome">{reprDe(c)}</span>
+            <span className={'est-badge ' + badge.cls}>{badge.txt}</span>
+          </div>
+          <div className="est-saldo">
+            {controlado ? (
+              <>
+                <strong>{saldo}</strong>
+                <span>un.</span>
+              </>
+            ) : (
+              <span className="est-saldo-vazio">—</span>
+            )}
+          </div>
+        </button>
+        <button className="est-card-x" onClick={onExcluir} aria-label="Excluir produto">
+          ✕
+        </button>
+      </div>
 
       {aberto && (
         <div className="est-corpo">
