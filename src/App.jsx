@@ -686,7 +686,6 @@ function Detalhe({ cliente, cervejas, consumos, resumo, onAdd, onRemove, onFecha
   const [ultimoTocado, setUltimoTocado] = useState(null) // só p/ a animação
   const [mostrarResumo, setMostrarResumo] = useState(false)
   const [confirmar, setConfirmar] = useState(null) // produto aguardando confirmação
-  const [pagando, setPagando] = useState(false) // folha "como pagou?" ao fechar
 
   const reprDe = (c) => (c.tamanho ? `${c.nome} ${c.tamanho}` : c.nome)
 
@@ -879,7 +878,13 @@ function Detalhe({ cliente, cervejas, consumos, resumo, onAdd, onRemove, onFecha
               📋 Resumo
             </button>
           </div>
-          <button className="btn-pagar" onClick={() => setPagando(true)}>
+          <button
+            className="btn-pagar"
+            onClick={() => {
+              if (confirm(`Fechar e marcar como PAGO a conta de ${cliente.nome}?`))
+                onFechar(cliente.id)
+            }}
+          >
             ✓ Pagar / Fechar
           </button>
         </footer>
@@ -907,36 +912,6 @@ function Detalhe({ cliente, cervejas, consumos, resumo, onAdd, onRemove, onFecha
               onClick={() => setMostrarResumo(false)}
             >
               Fechar
-            </button>
-          </div>
-        </div>
-      )}
-
-      {pagando && (
-        <div className="pag-overlay" onClick={() => setPagando(false)}>
-          <div className="pag-box" onClick={(e) => e.stopPropagation()}>
-            <p className="pag-titulo">Como {cliente.nome} pagou?</p>
-            <strong className="pag-total">{money(resumo.total)}</strong>
-            <div className="pag-formas">
-              {FORMAS_PAGAMENTO.map((f) => (
-                <button
-                  key={f.id}
-                  className="pag-forma"
-                  onClick={() => onFechar(cliente.id, f.id)}
-                >
-                  <span className="pag-forma-ic">{f.icone}</span>
-                  {f.label}
-                </button>
-              ))}
-            </div>
-            <button
-              className="pag-outro"
-              onClick={() => onFechar(cliente.id, null)}
-            >
-              Fechar sem informar
-            </button>
-            <button className="pag-cancelar" onClick={() => setPagando(false)}>
-              Cancelar
             </button>
           </div>
         </div>
