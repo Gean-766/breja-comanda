@@ -2155,9 +2155,6 @@ function EstoqueCard({ it, aberto, onAbrir, onCampo, onAbastecer, onRemoverEntra
                 </div>
               </label>
             </div>
-            <p className="est-dica">
-              Não precisa confirmar — salva sozinho quando você sai do campo.
-            </p>
           </div>
 
           {/* ---- Movimento ---- */}
