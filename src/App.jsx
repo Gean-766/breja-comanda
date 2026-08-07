@@ -2099,49 +2099,6 @@ function EstoqueCard({ it, aberto, onAbrir, onCampo, onAbastecer, onRemoverEntra
             )}
           </div>
 
-          {/* ---- Movimento ---- */}
-          {controlado && (
-            <div className="est-secao">
-              <span className="est-secao-tit">📊 Movimento</span>
-              <div className="est-stats">
-                <div>
-                  <span>Entrou</span>
-                  <b>{entrou}</b>
-                </div>
-                <div>
-                  <span>Saiu</span>
-                  <b>{saiu}</b>
-                </div>
-                <div>
-                  <span>Saldo</span>
-                  <b>{saldo}</b>
-                </div>
-              </div>
-              {ents.length > 0 && (
-                <div className="est-entradas">
-                  <span className="est-entradas-tit">Últimas entradas</span>
-                  {ents.slice(0, 4).map((e) => (
-                    <div key={e.id} className="est-ent-linha">
-                      <span className="est-ent-un">
-                        +{e.unidades} un.{e.caixas ? ` (${e.caixas} cx)` : ''}
-                      </span>
-                      <span className="est-ent-data">
-                        {new Date(e.created_at).toLocaleDateString('pt-BR')}
-                      </span>
-                      <button
-                        className="est-ent-x"
-                        onClick={() => onRemoverEntrada(e.id)}
-                        aria-label="Apagar entrada"
-                      >
-                        ✕
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-
           {/* ---- Custo e aviso ---- */}
           <div className="est-secao">
             <span className="est-secao-tit">💰 Custo e aviso</span>
@@ -2198,7 +2155,53 @@ function EstoqueCard({ it, aberto, onAbrir, onCampo, onAbastecer, onRemoverEntra
                 </div>
               </label>
             </div>
+            <p className="est-dica">
+              Não precisa confirmar — salva sozinho quando você sai do campo.
+            </p>
           </div>
+
+          {/* ---- Movimento ---- */}
+          {controlado && (
+            <div className="est-secao">
+              <span className="est-secao-tit">📊 Movimento</span>
+              <div className="est-stats">
+                <div>
+                  <span>Entrou</span>
+                  <b>{entrou}</b>
+                </div>
+                <div>
+                  <span>Saiu</span>
+                  <b>{saiu}</b>
+                </div>
+                <div>
+                  <span>Saldo</span>
+                  <b>{saldo}</b>
+                </div>
+              </div>
+              {ents.length > 0 && (
+                <div className="est-entradas">
+                  <span className="est-entradas-tit">Últimas entradas</span>
+                  {ents.slice(0, 4).map((e) => (
+                    <div key={e.id} className="est-ent-linha">
+                      <span className="est-ent-un">
+                        +{e.unidades} un.{e.caixas ? ` (${e.caixas} cx)` : ''}
+                      </span>
+                      <span className="est-ent-data">
+                        {new Date(e.created_at).toLocaleDateString('pt-BR')}
+                      </span>
+                      <button
+                        className="est-ent-x"
+                        onClick={() => onRemoverEntrada(e.id)}
+                        aria-label="Apagar entrada"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
     </div>
