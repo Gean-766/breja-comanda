@@ -547,6 +547,7 @@ export default function App({ distribuidora = null, onSair = null }) {
             setEntradas={setEntradas}
             consumos={consumos}
             onErro={erro}
+            onLog={registrar}
           />
         ) : aba === 'cozinha' ? (
           <AbaCozinha
@@ -1581,9 +1582,55 @@ function AbaCozinha({ cervejas, setCervejas, consumos, setConsumos, clientes, on
 // contagem). A saída já existe nos `consumos` (casados pelo nome do produto).
 // Custo da caixa + unidades por caixa dão o custo unitário — e, lá no Relatório,
 // o lucro de verdade. Não toca no fluxo das comandas: é só leitura + entradas.
-function AbaEstoque({ cervejas, setCervejas, entradas, setEntradas, consumos, onErro }) {
+function AbaEstoque({ cervejas, setCervejas, entradas, setEntradas, consumos, onErro, onLog }) {
   const [abertoId, setAbertoId] = useState(null)
+  // formulário de novo produto (cadastra o produto E já conta o estoque, num lugar só)
+  const [novo, setNovo] = useState(false)
+  const [nNome, setNNome] = useState('')
+  const [nTam, setNTam] = useState('')
+  const [nPreco, setNPreco] = useState('')
+  const [nQtd, setNQtd] = useState('')
+  const [nCusto, setNCusto] = useState('')
+  const [nUnid, setNUnid] = useState('')
   const reprDe = (c) => (c.tamanho ? `${c.nome} ${c.tamanho}` : c.nome)
+
+  // cria o produto (aparece na hora nas comandas e no cadastro) e, se você
+  // disse quanto tem, já lança a contagem inicial — daí o saldo passa a cair sozinho.
+  async function criarProduto() {
+    const nome = nNome.trim()
+    if (!nome) return onErro('Escreva o nome do produto.')
+    const num = (v) => Number(String(v).replace(',', '.')) || 0
+    const tam = nTam.trim()
+    const preco = num(nPreco)
+    const custo = nCusto.trim() ? num(nCusto) : null
+    const unid = nUnid.trim() ? Math.round(num(nUnid)) : null
+    const ordem = cervejas.reduce((m, c) => Math.max(m, c.ordem ?? 0), 0) + 1
+    const { data: prod, error } = await supabase
+      .from('cervejas')
+      .insert({ nome, tamanho: tam, preco, ordem, custo_caixa: custo, unidades_caixa: unid })
+      .select()
+      .single()
+    if (error || !prod) return onErro('⚠️ Não consegui salvar o produto. Tente de novo.')
+    setCervejas((cs) => [...cs, prod])
+    onLog?.('add_produto', `Adicionou produto: ${nome}${tam ? ' ' + tam : ''}`, { ids: [prod.id] })
+    // contagem inicial (o que já tem hoje)
+    const qtd = nQtd.trim() ? Math.round(num(nQtd)) : 0
+    if (qtd > 0) {
+      const { data: ent } = await supabase
+        .from('estoque_entradas')
+        .insert({ cerveja_id: prod.id, unidades: qtd, custo_caixa: custo })
+        .select()
+        .single()
+      if (ent) setEntradas((es) => [ent, ...es])
+    }
+    setNNome('')
+    setNTam('')
+    setNPreco('')
+    setNQtd('')
+    setNCusto('')
+    setNUnid('')
+    setNovo(false)
+  }
 
   // saídas somadas por nome-de-produto, guardando o instante (pra cortar no "desde")
   const saidasPorNome = useMemo(() => {
@@ -1677,23 +1724,106 @@ function AbaEstoque({ cervejas, setCervejas, entradas, setEntradas, consumos, on
     setEntradas((es) => es.filter((e) => e.id !== id))
   }
 
-  if (cervejas.length === 0) {
-    return (
-      <main className="conteudo">
-        <p className="vazio">
-          Cadastre produtos na aba <b>Produtos</b> primeiro. Depois volta aqui pra
-          controlar o estoque deles.
-        </p>
-      </main>
-    )
-  }
-
   return (
     <main className="conteudo">
       <p className="est-aviso">
-        O saldo cai sozinho a cada venda. Comece cada produto com a{' '}
-        <b>contagem do que tem hoje</b> — daí pra frente o sistema acompanha.
+        O que você cadastra aqui já aparece nas comandas — e a cada venda o saldo
+        cai sozinho. Comece cada produto com a <b>contagem do que tem hoje</b>.
       </p>
+
+      {novo ? (
+        <div className="est-novo">
+          <input
+            className="campo"
+            placeholder="Nome do produto (ex: Coca, Brahma)"
+            value={nNome}
+            onChange={(e) => setNNome(e.target.value)}
+          />
+          <div className="prod-linha">
+            <input
+              className="campo prod-tam"
+              placeholder="Tamanho (ex: 600ml, Lata)"
+              value={nTam}
+              onChange={(e) => setNTam(e.target.value)}
+            />
+            <div className="prod-preco">
+              <span>R$</span>
+              <input
+                className="campo"
+                placeholder="0,00"
+                type="number"
+                step="0.50"
+                inputMode="decimal"
+                value={nPreco}
+                onChange={(e) => setNPreco(e.target.value)}
+              />
+            </div>
+          </div>
+
+          <label className="est-novo-linha">
+            <span>Quantas você tem agora?</span>
+            <input
+              className="campo est-novo-num"
+              placeholder="ex: 48"
+              type="number"
+              inputMode="numeric"
+              value={nQtd}
+              onChange={(e) => setNQtd(e.target.value)}
+            />
+          </label>
+
+          <div className="est-novo-op">
+            <span className="est-novo-oplbl">Opcional — pra calcular o lucro:</span>
+            <label className="est-novo-linha">
+              <span>Custo da caixa</span>
+              <div className="prod-preco">
+                <span>R$</span>
+                <input
+                  className="campo"
+                  placeholder="0,00"
+                  type="number"
+                  step="0.50"
+                  inputMode="decimal"
+                  value={nCusto}
+                  onChange={(e) => setNCusto(e.target.value)}
+                />
+              </div>
+            </label>
+            <label className="est-novo-linha">
+              <span>Unidades por caixa</span>
+              <input
+                className="campo est-novo-num"
+                placeholder="ex: 12"
+                type="number"
+                inputMode="numeric"
+                value={nUnid}
+                onChange={(e) => setNUnid(e.target.value)}
+              />
+            </label>
+          </div>
+
+          <div className="est-novo-acoes">
+            <button className="btn-grande" onClick={criarProduto}>
+              ✓ Salvar produto
+            </button>
+            <button className="est-cancelar" onClick={() => setNovo(false)}>
+              Cancelar
+            </button>
+          </div>
+        </div>
+      ) : (
+        <button className="est-novo-btn" onClick={() => setNovo(true)}>
+          + Novo produto
+        </button>
+      )}
+
+      {cervejas.length === 0 && !novo && (
+        <p className="vazio">
+          Nenhum produto ainda. Toque em <b>“+ Novo produto”</b> pra começar —
+          quando chegar mercadoria nova, é aqui que você cadastra e conta.
+        </p>
+      )}
+
       <div className="est-lista">
         {lista.map((it) => (
           <EstoqueCard

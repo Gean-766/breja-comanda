@@ -1497,6 +1497,76 @@ input[type='number'] {
   line-height: 1.45;
   color: var(--muted);
 }
+.est-novo-btn {
+  width: 100%;
+  padding: 14px;
+  margin-bottom: 14px;
+  border: 2px dashed var(--card2);
+  border-radius: 12px;
+  background: transparent;
+  color: var(--accent);
+  font-size: 16px;
+  font-weight: 800;
+}
+.est-novo {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  background: #1b1b27;
+  border: 1px solid var(--card2);
+  border-radius: 16px;
+  padding: 16px;
+  margin-bottom: 14px;
+}
+.est-novo .campo {
+  background: var(--bg);
+}
+.est-novo .prod-preco .campo {
+  background: transparent;
+}
+.est-novo-linha {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.est-novo-linha > span {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text);
+}
+.est-novo-num {
+  max-width: 118px;
+  text-align: right;
+}
+.est-novo-op {
+  border-top: 1px solid var(--card2);
+  padding-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.est-novo-oplbl {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--muted);
+}
+.est-novo-acoes {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.est-novo-acoes .btn-grande {
+  width: 100%;
+}
+.est-cancelar {
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font-size: 15px;
+  font-weight: 700;
+  padding: 8px;
+}
 .est-lista {
   display: flex;
   flex-direction: column;
