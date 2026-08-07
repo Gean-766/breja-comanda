@@ -81,6 +81,9 @@ export default function App({ distribuidora = null, onSair = null }) {
   // abas extras que esse cliente contratou (vêm ligadas do painel CEO)
   const modulos = Array.isArray(distribuidora?.modulos) ? distribuidora.modulos : []
   const abasExtra = ORDEM_MODULOS.filter((k) => modulos.includes(k) && MODULOS[k])
+  // com Estoque ligado, ele vira o gerenciador de produtos e a aba Produtos some
+  // (evita cadastrar o mesmo produto em dois lugares e duplicar)
+  const temEstoque = modulos.includes('estoque')
   // comanda por mesa (Mesa 3) ou por pessoa (Alex) — configurado no painel CEO
   const modoMesa = distribuidora?.modo_comanda === 'mesa'
   const [aba, setAba] = useState('comandas') // núcleo: 'comandas' | 'cervejas' | 'historico' + módulos
@@ -433,12 +436,14 @@ export default function App({ distribuidora = null, onSair = null }) {
           >
             Comandas
           </button>
-          <button
-            className={aba === 'cervejas' ? 'aba on' : 'aba'}
-            onClick={() => setAba('cervejas')}
-          >
-            Produtos
-          </button>
+          {!temEstoque && (
+            <button
+              className={aba === 'cervejas' ? 'aba on' : 'aba'}
+              onClick={() => setAba('cervejas')}
+            >
+              Produtos
+            </button>
+          )}
           <button
             className={aba === 'historico' ? 'aba on' : 'aba'}
             onClick={() => setAba('historico')}
@@ -518,7 +523,7 @@ export default function App({ distribuidora = null, onSair = null }) {
         </main>
       )}
 
-      {aba === 'cervejas' && (
+      {aba === 'cervejas' && !temEstoque && (
         <AbaCervejas
           cervejas={cervejas}
           setCervejas={setCervejas}
@@ -1704,6 +1709,18 @@ function AbaEstoque({ cervejas, setCervejas, entradas, setEntradas, consumos, on
     onLog?.('remover_produto', `Removeu produto: ${reprDe(c)}`, { produto: c })
   }
 
+  async function renomear(c) {
+    const atual = reprDe(c)
+    const novo = (prompt('Novo nome do produto:', atual) || '').trim()
+    if (!novo || novo === atual) return
+    const { error } = await supabase
+      .from('cervejas')
+      .update({ nome: novo, tamanho: '' })
+      .eq('id', c.id)
+    if (error) return onErro('⚠️ Não consegui renomear. Tente de novo.')
+    setCervejas((cs) => cs.map((x) => (x.id === c.id ? { ...x, nome: novo, tamanho: '' } : x)))
+  }
+
   // saídas somadas por nome-de-produto, guardando o instante (pra cortar no "desde")
   const saidasPorNome = useMemo(() => {
     const m = new Map()
@@ -1837,6 +1854,7 @@ function AbaEstoque({ cervejas, setCervejas, entradas, setEntradas, consumos, on
       onAbastecer={abastecer}
       onRemoverEntrada={removerEntrada}
       onExcluir={() => excluirProduto(it.c)}
+      onRenomear={() => renomear(it.c)}
     />
   )
 
@@ -2112,7 +2130,7 @@ function AbaEstoque({ cervejas, setCervejas, entradas, setEntradas, consumos, on
   )
 }
 
-function EstoqueCard({ it, aberto, onAbrir, onCampo, onAbastecer, onRemoverEntrada, onExcluir }) {
+function EstoqueCard({ it, aberto, onAbrir, onCampo, onAbastecer, onRemoverEntrada, onExcluir, onRenomear }) {
   const { c, controlado, entrou, saiu, saldo, custoUnit, nivel, ents } = it
   // começa em "unidades" enquanto não houver unid/caixa (assim o 1º uso — a
   // contagem inicial — funciona na hora); com caixa configurada, vai pra "caixas"
@@ -2155,6 +2173,9 @@ function EstoqueCard({ it, aberto, onAbrir, onCampo, onAbastecer, onRemoverEntra
               <span className="est-saldo-vazio">—</span>
             )}
           </div>
+        </button>
+        <button className="est-card-x" onClick={onRenomear} aria-label="Renomear produto">
+          ✏️
         </button>
         <button className="est-card-x" onClick={onExcluir} aria-label="Excluir produto">
           ✕
@@ -2214,10 +2235,24 @@ function EstoqueCard({ it, aberto, onAbrir, onCampo, onAbastecer, onRemoverEntra
             )}
           </div>
 
-          {/* ---- Custo e aviso ---- */}
+          {/* ---- Preço, custo e aviso ---- */}
           <div className="est-secao">
-            <span className="est-secao-tit">💰 Custo e aviso</span>
+            <span className="est-secao-tit">💰 Preço e custo</span>
             <div className="est-linha-campos">
+              <label className="est-campo">
+                <span>Preço de venda</span>
+                <div className="est-inp">
+                  <i>R$</i>
+                  <input
+                    type="number"
+                    step="0.50"
+                    inputMode="decimal"
+                    defaultValue={c.preco ?? ''}
+                    placeholder="0,00"
+                    onBlur={(e) => onCampo(c, 'preco', e.target.value)}
+                  />
+                </div>
+              </label>
               <label className="est-campo">
                 <span>Custo da caixa</span>
                 <div className="est-inp">
@@ -2232,6 +2267,8 @@ function EstoqueCard({ it, aberto, onAbrir, onCampo, onAbastecer, onRemoverEntra
                   />
                 </div>
               </label>
+            </div>
+            <div className="est-linha-campos">
               <label className="est-campo">
                 <span>Unid. por caixa</span>
                 <div className="est-inp">
@@ -2245,18 +2282,7 @@ function EstoqueCard({ it, aberto, onAbrir, onCampo, onAbastecer, onRemoverEntra
                   />
                 </div>
               </label>
-            </div>
-            <div className="est-linha-campos est-linha-2">
-              <div className="est-custo-unit">
-                {custoUnit != null ? (
-                  <>
-                    Custo por unidade: <b>{money(custoUnit)}</b>
-                  </>
-                ) : (
-                  'Preencha custo e unidades pra ver o custo por unidade (e o lucro no Relatório).'
-                )}
-              </div>
-              <label className="est-campo est-campo-min">
+              <label className="est-campo">
                 <span>Avisar quando ≤</span>
                 <div className="est-inp">
                   <input
@@ -2269,6 +2295,15 @@ function EstoqueCard({ it, aberto, onAbrir, onCampo, onAbastecer, onRemoverEntra
                   />
                 </div>
               </label>
+            </div>
+            <div className="est-custo-unit">
+              {custoUnit != null ? (
+                <>
+                  Custo por unidade: <b>{money(custoUnit)}</b>
+                </>
+              ) : (
+                'Preencha custo e unidades pra ver o custo por unidade (e o lucro no Relatório).'
+              )}
             </div>
           </div>
 
