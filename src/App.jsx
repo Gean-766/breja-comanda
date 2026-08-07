@@ -1587,11 +1587,10 @@ function AbaEstoque({ cervejas, setCervejas, entradas, setEntradas, consumos, on
   // formulário de novo produto (cadastra o produto E já conta o estoque, num lugar só)
   const [novo, setNovo] = useState(false)
   const [nNome, setNNome] = useState('')
-  const [nTam, setNTam] = useState('')
   const [nPreco, setNPreco] = useState('')
+  const [nModo, setNModo] = useState('caixas') // 'caixas' | 'unidades'
   const [nQtd, setNQtd] = useState('')
-  const [nCusto, setNCusto] = useState('')
-  const [nUnid, setNUnid] = useState('')
+  const [nUnid, setNUnid] = useState('') // unidades por caixa (só no modo caixas)
   const reprDe = (c) => (c.tamanho ? `${c.nome} ${c.tamanho}` : c.nome)
 
   // cria o produto (aparece na hora nas comandas e no cadastro) e, se você
@@ -1600,35 +1599,46 @@ function AbaEstoque({ cervejas, setCervejas, entradas, setEntradas, consumos, on
     const nome = nNome.trim()
     if (!nome) return onErro('Escreva o nome do produto.')
     const num = (v) => Number(String(v).replace(',', '.')) || 0
-    const tam = nTam.trim()
-    const preco = num(nPreco)
-    const custo = nCusto.trim() ? num(nCusto) : null
-    const unid = nUnid.trim() ? Math.round(num(nUnid)) : null
+    const preco = num(nPreco) // preço da unidade (o que aparece na comanda)
+    const qtdNum = num(nQtd)
+
+    // converte o que chegou pra unidades (o estoque é sempre contado por unidade)
+    let unidades = 0
+    let caixas = null
+    let unPorCaixa = null
+    if (nModo === 'caixas') {
+      if (qtdNum > 0) {
+        unPorCaixa = nUnid.trim() ? Math.round(num(nUnid)) : 0
+        if (!unPorCaixa) return onErro('Diga quantas unidades vêm em cada caixa.')
+        caixas = qtdNum
+        unidades = Math.round(qtdNum * unPorCaixa)
+      }
+    } else {
+      unidades = Math.round(qtdNum)
+    }
+
     const ordem = cervejas.reduce((m, c) => Math.max(m, c.ordem ?? 0), 0) + 1
     const { data: prod, error } = await supabase
       .from('cervejas')
-      .insert({ nome, tamanho: tam, preco, ordem, custo_caixa: custo, unidades_caixa: unid })
+      .insert({ nome, tamanho: '', preco, ordem, unidades_caixa: unPorCaixa })
       .select()
       .single()
     if (error || !prod) return onErro('⚠️ Não consegui salvar o produto. Tente de novo.')
     setCervejas((cs) => [...cs, prod])
-    onLog?.('add_produto', `Adicionou produto: ${nome}${tam ? ' ' + tam : ''}`, { ids: [prod.id] })
-    // contagem inicial (o que já tem hoje)
-    const qtd = nQtd.trim() ? Math.round(num(nQtd)) : 0
-    if (qtd > 0) {
-      const { data: ent } = await supabase
-        .from('estoque_entradas')
-        .insert({ cerveja_id: prod.id, unidades: qtd, custo_caixa: custo })
-        .select()
-        .single()
+    onLog?.('add_produto', `Adicionou produto: ${nome}`, { ids: [prod.id] })
+
+    if (unidades > 0) {
+      const linha = { cerveja_id: prod.id, unidades }
+      if (caixas) linha.caixas = caixas
+      const { data: ent } = await supabase.from('estoque_entradas').insert(linha).select().single()
       if (ent) setEntradas((es) => [ent, ...es])
     }
+
     setNNome('')
-    setNTam('')
     setNPreco('')
     setNQtd('')
-    setNCusto('')
     setNUnid('')
+    setNModo('caixas')
     setNovo(false)
   }
 
@@ -1735,17 +1745,52 @@ function AbaEstoque({ cervejas, setCervejas, entradas, setEntradas, consumos, on
         <div className="est-novo">
           <input
             className="campo"
-            placeholder="Nome do produto (ex: Coca, Brahma)"
+            placeholder="Nome do produto (ex: Original 600)"
             value={nNome}
             onChange={(e) => setNNome(e.target.value)}
           />
-          <div className="prod-linha">
+
+          <span className="est-novo-lbl">Quanto chegou</span>
+          <div className="est-novo-qtd">
             <input
-              className="campo prod-tam"
-              placeholder="Tamanho (ex: 600ml, Lata)"
-              value={nTam}
-              onChange={(e) => setNTam(e.target.value)}
+              className="campo est-novo-q"
+              placeholder={nModo === 'caixas' ? 'nº de caixas' : 'nº de unidades'}
+              type="number"
+              inputMode="numeric"
+              value={nQtd}
+              onChange={(e) => setNQtd(e.target.value)}
             />
+            <div className="est-modo">
+              <button
+                className={nModo === 'caixas' ? 'on' : ''}
+                onClick={() => setNModo('caixas')}
+              >
+                Caixas
+              </button>
+              <button
+                className={nModo === 'unidades' ? 'on' : ''}
+                onClick={() => setNModo('unidades')}
+              >
+                Unidades
+              </button>
+            </div>
+          </div>
+          {nModo === 'caixas' && (
+            <label className="est-novo-linha">
+              <span>Unidades por caixa</span>
+              <input
+                className="campo est-novo-num"
+                placeholder="ex: 12"
+                type="number"
+                inputMode="numeric"
+                value={nUnid}
+                onChange={(e) => setNUnid(e.target.value)}
+              />
+            </label>
+          )}
+
+          <label className="est-novo-linha">
+            <span>Preço da unidade</span>
             <div className="prod-preco">
               <span>R$</span>
               <input
@@ -1758,53 +1803,11 @@ function AbaEstoque({ cervejas, setCervejas, entradas, setEntradas, consumos, on
                 onChange={(e) => setNPreco(e.target.value)}
               />
             </div>
-          </div>
-
-          <label className="est-novo-linha">
-            <span>Quantas você tem agora?</span>
-            <input
-              className="campo est-novo-num"
-              placeholder="ex: 48"
-              type="number"
-              inputMode="numeric"
-              value={nQtd}
-              onChange={(e) => setNQtd(e.target.value)}
-            />
           </label>
-
-          <div className="est-novo-op">
-            <span className="est-novo-oplbl">Opcional — pra calcular o lucro:</span>
-            <label className="est-novo-linha">
-              <span>Custo da caixa</span>
-              <div className="prod-preco">
-                <span>R$</span>
-                <input
-                  className="campo"
-                  placeholder="0,00"
-                  type="number"
-                  step="0.50"
-                  inputMode="decimal"
-                  value={nCusto}
-                  onChange={(e) => setNCusto(e.target.value)}
-                />
-              </div>
-            </label>
-            <label className="est-novo-linha">
-              <span>Unidades por caixa</span>
-              <input
-                className="campo est-novo-num"
-                placeholder="ex: 12"
-                type="number"
-                inputMode="numeric"
-                value={nUnid}
-                onChange={(e) => setNUnid(e.target.value)}
-              />
-            </label>
-          </div>
 
           <div className="est-novo-acoes">
             <button className="btn-grande" onClick={criarProduto}>
-              ✓ Salvar produto
+              ✓ Salvar
             </button>
             <button className="est-cancelar" onClick={() => setNovo(false)}>
               Cancelar

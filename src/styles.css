@@ -1524,6 +1524,21 @@ input[type='number'] {
 .est-novo .prod-preco .campo {
   background: transparent;
 }
+.est-novo-lbl {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--muted);
+  margin-bottom: -4px;
+}
+.est-novo-qtd {
+  display: flex;
+  gap: 10px;
+  align-items: stretch;
+}
+.est-novo-q {
+  flex: 1;
+  min-width: 0;
+}
 .est-novo-linha {
   display: flex;
   align-items: center;
