@@ -598,18 +598,6 @@ export default function App({ distribuidora = null, onSair = null }) {
   )
 }
 
-const ORDEM_TAM = { Lata: 0, Latão: 1 }
-
-// categorias do cadastro: cada uma filtra os formatos que fazem sentido.
-// "Lata"/"Latão" são exatos de propósito (disparam o card Latão | Nome | Lata).
-const CATEGORIAS = [
-  { id: 'cerveja', label: '🍺 Cerveja', formatos: ['Lata', 'Latão', 'Long Neck', 'Garrafa 600ml', 'Litrão 1L', 'Caixa', 'Engradado 300ml', 'Engradado 600ml'] },
-  { id: 'refri', label: '🥤 Refri', formatos: ['Lata', 'Garrafa 600ml', '1L', '1,5L', '2L'] },
-  { id: 'energetico', label: '⚡ Energético', formatos: ['Lata 250ml', 'Lata 269ml', 'Lata 473ml', '1L', '2L'] },
-  { id: 'agua', label: '💧 Água', formatos: ['Copo 300ml', 'Garrafa 500ml', 'Garrafa 1,5L'] },
-  { id: 'outro', label: '➕ Outro', formatos: [] },
-]
-const rankFmt = (t) => (t === 'Latão' ? 0 : t === 'Lata' ? 1 : 2)
 
 // marcas populares no Brasil — pra autocompletar e corrigir digitação
 const MARCAS_POPULARES = [
@@ -991,33 +979,12 @@ function Detalhe({ cliente, cervejas, consumos, resumo, onAdd, onRemove, onFecha
 
 function AbaCervejas({ cervejas, setCervejas, onErro, onLog }) {
   const [nome, setNome] = useState('')
-  const [categoria, setCategoria] = useState('cerveja')
-  const [formatos, setFormatos] = useState({}) // { 'Lata': '5,00', 'Latão': '7,00' }
-  const [extras, setExtras] = useState([]) // [{ tam, preco }] livres
+  const [tamanho, setTamanho] = useState('') // livre: "600ml", "Lata", "Litrão"…
+  const [precoNovo, setPrecoNovo] = useState('')
   const [corSel, setCorSel] = useState('') // '' = automática
   const [editId, setEditId] = useState(null)
   const [editNome, setEditNome] = useState('')
   const [editTam, setEditTam] = useState('')
-
-  const cat = CATEGORIAS.find((c) => c.id === categoria) || CATEGORIAS[0]
-
-  const escolherCategoria = (id) => {
-    setCategoria(id)
-    setFormatos({}) // formatos dependem da categoria
-  }
-  const toggleFormato = (f) =>
-    setFormatos((m) => {
-      const n = { ...m }
-      if (f in n) delete n[f]
-      else n[f] = ''
-      return n
-    })
-  const setFormatoPreco = (f, v) => setFormatos((m) => ({ ...m, [f]: v }))
-
-  const addExtra = (tam = '') => setExtras((e) => [...e, { tam, preco: '' }])
-  const setExtra = (i, campo, val) =>
-    setExtras((e) => e.map((x, j) => (j === i ? { ...x, [campo]: val } : x)))
-  const remExtra = (i) => setExtras((e) => e.filter((_, j) => j !== i))
 
   // agrupa a lista de preços por marca
   const gruposPreco = useMemo(() => {
@@ -1079,39 +1046,27 @@ function AbaCervejas({ cervejas, setCervejas, onErro, onLog }) {
   async function adicionar() {
     const n = nome.trim()
     if (!n) return
-    const parse = (p) => Number(String(p).replace(',', '.')) || 0
-    const novos = []
-    Object.entries(formatos)
-      .sort((a, b) => rankFmt(a[0]) - rankFmt(b[0]))
-      .forEach(([tam, preco]) =>
-        novos.push({ nome: n, tamanho: tam, preco: parse(preco) })
-      )
-    for (const x of extras.filter((x) => x.tam.trim()))
-      novos.push({ nome: n, tamanho: x.tam.trim(), preco: parse(x.preco) })
-    if (novos.length === 0) novos.push({ nome: n, tamanho: '', preco: 0 })
-
-    const base = cervejas.reduce((m, c) => Math.max(m, c.ordem ?? 0), 0) + 1
-    const comOrdem = novos.map((x, i) => ({ ...x, ordem: base + i, cor: corSel || null }))
+    const preco = Number(String(precoNovo).replace(',', '.')) || 0
+    const tam = tamanho.trim()
+    const ordem = cervejas.reduce((m, c) => Math.max(m, c.ordem ?? 0), 0) + 1
+    const linha = { nome: n, tamanho: tam, preco, ordem, cor: corSel || null }
 
     // tenta com a coluna "cor"; se ela ainda não existe no banco, salva sem ela
-    let res = await supabase.from('cervejas').insert(comOrdem).select()
+    let res = await supabase.from('cervejas').insert(linha).select()
     if (res.error && /cor/i.test(res.error.message || '')) {
-      const semCor = comOrdem.map(({ cor, ...x }) => x)
+      const { cor, ...semCor } = linha
       res = await supabase.from('cervejas').insert(semCor).select()
     }
     if (res.error || !res.data) {
       return onErro('⚠️ Não consegui salvar o produto. Tente de novo.')
     }
     setCervejas((cs) => [...cs, ...res.data])
-    const qf = res.data.length
-    onLog?.(
-      'add_produto',
-      `Adicionou produto: ${n} (${qf} formato${qf === 1 ? '' : 's'})`,
-      { ids: res.data.map((r) => r.id) }
-    )
+    onLog?.('add_produto', `Adicionou produto: ${n}${tam ? ' ' + tam : ''}`, {
+      ids: res.data.map((r) => r.id),
+    })
     setNome('')
-    setFormatos({})
-    setExtras([])
+    setTamanho('')
+    setPrecoNovo('')
     setCorSel('')
   }
 
@@ -1190,7 +1145,7 @@ function AbaCervejas({ cervejas, setCervejas, onErro, onLog }) {
       <div className="form-produto">
         <input
           className="campo"
-          placeholder="Marca (ex: Original, Heineken, Água)"
+          placeholder="Nome do produto (ex: Coca-Cola, Brahma, Água)"
           value={nome}
           onChange={(e) => setNome(e.target.value)}
         />
@@ -1208,80 +1163,30 @@ function AbaCervejas({ cervejas, setCervejas, onErro, onLog }) {
             </div>
           </div>
         )}
-        <div className="tam-pick">
-          <span className="tam-label">É o quê?</span>
-          {CATEGORIAS.map((c) => (
-            <button
-              key={c.id}
-              className={categoria === c.id ? 'tam on' : 'tam'}
-              onClick={() => escolherCategoria(c.id)}
-            >
-              {c.label}
-            </button>
-          ))}
-        </div>
 
-        {cat.formatos.length > 0 && (
-          <div className="tam-pick">
-            <span className="tam-label">Formatos:</span>
-            {cat.formatos.map((f) => (
-              <button
-                key={f}
-                className={f in formatos ? 'tam on' : 'tam'}
-                onClick={() => toggleFormato(f)}
-              >
-                {f in formatos ? '✓ ' : ''}
-                {f}
-              </button>
-            ))}
-          </div>
-        )}
-
-        {Object.keys(formatos).map((f) => (
-          <div key={f} className="preco-tam">
-            <span className="preco-tam-lbl">{f} — R$</span>
+        <div className="prod-linha">
+          <input
+            className="campo prod-tam"
+            placeholder="Tamanho (ex: 600ml, Lata, 1L)"
+            value={tamanho}
+            onChange={(e) => setTamanho(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && adicionar()}
+          />
+          <div className="prod-preco">
+            <span>R$</span>
             <input
-              className="campo campo-preco-novo"
+              className="campo"
               placeholder="0,00"
               type="number"
               step="0.50"
               inputMode="decimal"
-              value={formatos[f]}
-              onChange={(e) => setFormatoPreco(f, e.target.value)}
+              value={precoNovo}
+              onChange={(e) => setPrecoNovo(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && adicionar()}
             />
           </div>
-        ))}
-
-        <div className="extras-sec">
-          <div className="chips">
-            <button className="chip chip-livre" onClick={() => addExtra('')}>
-              + Outro formato
-            </button>
-          </div>
-          {extras.map((x, i) => (
-            <div key={i} className="preco-tam extra-row">
-              <input
-                className="campo extra-tam"
-                placeholder="Formato (ex: Garrafinha 300ml)"
-                value={x.tam}
-                onChange={(e) => setExtra(i, 'tam', e.target.value)}
-              />
-              <span className="preco-tam-lbl preco-rs">R$</span>
-              <input
-                className="campo campo-preco-novo"
-                placeholder="0,00"
-                type="number"
-                step="0.50"
-                inputMode="decimal"
-                value={x.preco}
-                onChange={(e) => setExtra(i, 'preco', e.target.value)}
-              />
-              <button className="lc-x" onClick={() => remExtra(i)}>
-                ✕
-              </button>
-            </div>
-          ))}
         </div>
+        <p className="prod-dica">O tamanho é opcional — se não tiver, deixa em branco.</p>
 
         <div className="cor-sec">
           <span className="tam-label">Cor do card:</span>
@@ -1306,7 +1211,7 @@ function AbaCervejas({ cervejas, setCervejas, onErro, onLog }) {
         </div>
 
         <button className="btn-grande" onClick={adicionar}>
-          + Add produto
+          + Salvar produto
         </button>
       </div>
     </main>
