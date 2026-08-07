@@ -1582,6 +1582,23 @@ function AbaCozinha({ cervejas, setCervejas, consumos, setConsumos, clientes, on
 // contagem). A saída já existe nos `consumos` (casados pelo nome do produto).
 // Custo da caixa + unidades por caixa dão o custo unitário — e, lá no Relatório,
 // o lucro de verdade. Não toca no fluxo das comandas: é só leitura + entradas.
+// Pastas do estoque: a categoria é descoberta pelo NOME do produto (sem pedir
+// isso no cadastro). O que não bater com nada cai em "Outros".
+const CATEGORIAS_ESTOQUE = [
+  { id: 'cerveja', label: 'Cerveja', icone: '🍺', kw: ['cerveja', 'chopp', 'brahma', 'skol', 'antarctica', 'original', 'bohemia', 'heineken', 'amstel', 'budweiser', 'stella', 'spaten', 'eisenbahn', 'itaipava', 'petra', 'devassa', 'kaiser', 'schin', 'serramalte', 'bavaria', 'corona', 'becks', 'patagonia', 'imperio', 'colorado', 'praya', 'caracu', 'polar', 'therezopolis', 'baden', 'lokal', 'long neck', 'litrao', 'latao', 'pilsen', 'malte'] },
+  { id: 'refri', label: 'Refrigerante', icone: '🥤', kw: ['refri', 'refrigerante', 'coca', 'guarana', 'fanta', 'sprite', 'pepsi', 'kuat', 'schweppes', 'dolly', 'sukita', 'soda', 'tubaina', 'h2oh'] },
+  { id: 'energetico', label: 'Energético', icone: '⚡', kw: ['energetico', 'energy', 'red bull', 'redbull', 'monster', 'tnt', 'fusion', 'baly', 'red horse', 'burn'] },
+  { id: 'agua', label: 'Água', icone: '💧', kw: ['agua', 'água', 'bonafont', 'indaia', 'minalba', 'crystal'] },
+  { id: 'outros', label: 'Outros', icone: '📦', kw: [] },
+]
+function categoriaDe(nome) {
+  const n = normalizar(nome)
+  for (const c of CATEGORIAS_ESTOQUE) {
+    if (c.kw.some((k) => n.includes(normalizar(k)))) return c.id
+  }
+  return 'outros'
+}
+
 function AbaEstoque({ cervejas, setCervejas, entradas, setEntradas, consumos, onErro, onLog }) {
   const [abertoId, setAbertoId] = useState(null)
   // formulário de novo produto (cadastra o produto E já conta o estoque, num lugar só)
@@ -1591,6 +1608,14 @@ function AbaEstoque({ cervejas, setCervejas, entradas, setEntradas, consumos, on
   const [nModo, setNModo] = useState('caixas') // 'caixas' | 'unidades'
   const [nQtd, setNQtd] = useState('')
   const [nUnid, setNUnid] = useState('') // unidades por caixa (só no modo caixas)
+  const [busca, setBusca] = useState('')
+  const [pastasAbertas, setPastasAbertas] = useState(() => new Set())
+  const togglePasta = (id) =>
+    setPastasAbertas((s) => {
+      const n = new Set(s)
+      n.has(id) ? n.delete(id) : n.add(id)
+      return n
+    })
   const reprDe = (c) => (c.tamanho ? `${c.nome} ${c.tamanho}` : c.nome)
 
   // cria o produto (aparece na hora nas comandas e no cadastro) e, se você
@@ -1693,6 +1718,28 @@ function AbaEstoque({ cervejas, setCervejas, entradas, setEntradas, consumos, on
     )
   }, [cervejas, entradasPorCerveja, saidasPorNome])
 
+  // busca por nome (quando tem texto, ignora as pastas e mostra tudo que casa)
+  const listaFiltrada = useMemo(() => {
+    const q = normalizar(busca)
+    if (!q) return lista
+    return lista.filter((it) => normalizar(reprDe(it.c)).includes(q))
+  }, [lista, busca])
+
+  // pastas por categoria (só as que têm produto), com contagem de alertas
+  const pastas = useMemo(() => {
+    const map = new Map()
+    for (const it of lista) {
+      const cat = categoriaDe(it.c.nome)
+      if (!map.has(cat)) map.set(cat, [])
+      map.get(cat).push(it)
+    }
+    return CATEGORIAS_ESTOQUE.filter((c) => map.has(c.id)).map((c) => {
+      const itens = map.get(c.id)
+      const alertas = itens.filter((i) => i.nivel === 'zero' || i.nivel === 'baixo').length
+      return { ...c, itens, alertas }
+    })
+  }, [lista])
+
   async function salvarCampo(c, campo, valor) {
     const txt = String(valor).trim()
     const v = txt === '' ? null : Number(txt.replace(',', '.'))
@@ -1734,13 +1781,20 @@ function AbaEstoque({ cervejas, setCervejas, entradas, setEntradas, consumos, on
     setEntradas((es) => es.filter((e) => e.id !== id))
   }
 
+  const renderCard = (it) => (
+    <EstoqueCard
+      key={it.c.id}
+      it={it}
+      aberto={abertoId === it.c.id}
+      onAbrir={() => setAbertoId((id) => (id === it.c.id ? null : it.c.id))}
+      onCampo={salvarCampo}
+      onAbastecer={abastecer}
+      onRemoverEntrada={removerEntrada}
+    />
+  )
+
   return (
     <main className="conteudo">
-      <p className="est-aviso">
-        O que você cadastra aqui já aparece nas comandas — e a cada venda o saldo
-        cai sozinho. Comece cada produto com a <b>contagem do que tem hoje</b>.
-      </p>
-
       {novo ? (
         <div className="est-novo">
           <input
@@ -1827,19 +1881,57 @@ function AbaEstoque({ cervejas, setCervejas, entradas, setEntradas, consumos, on
         </p>
       )}
 
-      <div className="est-lista">
-        {lista.map((it) => (
-          <EstoqueCard
-            key={it.c.id}
-            it={it}
-            aberto={abertoId === it.c.id}
-            onAbrir={() => setAbertoId((id) => (id === it.c.id ? null : it.c.id))}
-            onCampo={salvarCampo}
-            onAbastecer={abastecer}
-            onRemoverEntrada={removerEntrada}
+      {cervejas.length > 3 && (
+        <div className="busca-wrap est-busca">
+          <input
+            className="campo busca"
+            placeholder="🔎 Buscar produto…"
+            value={busca}
+            onChange={(e) => setBusca(e.target.value)}
           />
-        ))}
-      </div>
+          {busca && (
+            <button
+              className="busca-x"
+              onClick={() => setBusca('')}
+              aria-label="Limpar busca"
+            >
+              ✕
+            </button>
+          )}
+        </div>
+      )}
+
+      {busca.trim() ? (
+        <div className="est-lista">
+          {listaFiltrada.length === 0 && (
+            <p className="vazio">Nenhum produto com esse nome.</p>
+          )}
+          {listaFiltrada.map(renderCard)}
+        </div>
+      ) : (
+        <div className="est-pastas">
+          {pastas.map((p) => {
+            const aberta = pastas.length === 1 || pastasAbertas.has(p.id)
+            return (
+              <div key={p.id} className={'est-pasta' + (aberta ? ' on' : '')}>
+                <button className="est-pasta-cab" onClick={() => togglePasta(p.id)}>
+                  <span className="est-pasta-nome">
+                    {p.icone} {p.label}
+                  </span>
+                  {p.alertas > 0 && (
+                    <span className="est-pasta-alerta">
+                      {p.alertas} baixo{p.alertas > 1 ? 's' : ''}
+                    </span>
+                  )}
+                  <span className="est-pasta-cont">{p.itens.length}</span>
+                  <span className="est-pasta-seta">{aberta ? '▾' : '›'}</span>
+                </button>
+                {aberta && <div className="est-lista">{p.itens.map(renderCard)}</div>}
+              </div>
+            )
+          })}
+        </div>
+      )}
     </main>
   )
 }
@@ -1854,7 +1946,7 @@ function EstoqueCard({ it, aberto, onAbrir, onCampo, onAbastecer, onRemoverEntra
 
   const badge =
     nivel === 'novo'
-      ? { txt: 'sem controle', cls: 'est-novo' }
+      ? { txt: 'sem controle', cls: 'est-semctrl' }
       : nivel === 'zero'
       ? { txt: 'esgotado', cls: 'est-zero' }
       : nivel === 'baixo'

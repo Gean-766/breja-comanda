@@ -1587,6 +1587,64 @@ input[type='number'] {
   flex-direction: column;
   gap: 10px;
 }
+.est-busca {
+  margin-bottom: 14px;
+}
+.est-pastas {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.est-pasta-cab {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 15px 16px;
+  border: none;
+  border-radius: 12px;
+  background: var(--card);
+  color: var(--text);
+  text-align: left;
+}
+.est-pasta.on .est-pasta-cab {
+  border-radius: 12px 12px 0 0;
+}
+.est-pasta-nome {
+  flex: 1;
+  min-width: 0;
+  font-size: 17px;
+  font-weight: 800;
+}
+.est-pasta-alerta {
+  font-size: 12px;
+  font-weight: 800;
+  color: #ffb4a6;
+  background: #5a1f1a;
+  border-radius: 999px;
+  padding: 3px 9px;
+  white-space: nowrap;
+}
+.est-pasta-cont {
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--muted);
+  background: var(--bg);
+  border-radius: 999px;
+  padding: 3px 10px;
+  min-width: 30px;
+  text-align: center;
+}
+.est-pasta-seta {
+  color: var(--muted);
+  font-weight: 800;
+  font-size: 14px;
+}
+.est-pasta .est-lista {
+  padding: 10px;
+  background: var(--bg);
+  border-radius: 0 0 12px 12px;
+}
 .est-card {
   background: var(--card);
   border-radius: 14px;
