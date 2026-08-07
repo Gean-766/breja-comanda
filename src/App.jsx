@@ -1868,6 +1868,26 @@ function AbaEstoque({ cervejas, setCervejas, entradas, setEntradas, consumos, on
         onChange={(e) => setNNome(e.target.value)}
       />
 
+      <span className="est-novo-lbl">Quanto chegou agora</span>
+      <div className="est-novo-qtd">
+        <input
+          className="campo est-novo-q"
+          placeholder={nModo === 'caixas' ? 'nº de caixas' : 'nº de unidades'}
+          type="number"
+          inputMode="numeric"
+          value={nQtd}
+          onChange={(e) => setNQtd(e.target.value)}
+        />
+        <div className="est-modo">
+          <button className={nModo === 'caixas' ? 'on' : ''} onClick={() => setNModo('caixas')}>
+            Caixas
+          </button>
+          <button className={nModo === 'unidades' ? 'on' : ''} onClick={() => setNModo('unidades')}>
+            Unidades
+          </button>
+        </div>
+      </div>
+
       <label className="est-novo-linha">
         <span>Quantos custou essa caixa?</span>
         <div className="prod-preco">
@@ -1920,26 +1940,6 @@ function AbaEstoque({ cervejas, setCervejas, entradas, setEntradas, consumos, on
           onChange={(e) => setNAviso(e.target.value)}
         />
       </label>
-
-      <span className="est-novo-lbl">Quanto chegou agora</span>
-      <div className="est-novo-qtd">
-        <input
-          className="campo est-novo-q"
-          placeholder={nModo === 'caixas' ? 'nº de caixas' : 'nº de unidades'}
-          type="number"
-          inputMode="numeric"
-          value={nQtd}
-          onChange={(e) => setNQtd(e.target.value)}
-        />
-        <div className="est-modo">
-          <button className={nModo === 'caixas' ? 'on' : ''} onClick={() => setNModo('caixas')}>
-            Caixas
-          </button>
-          <button className={nModo === 'unidades' ? 'on' : ''} onClick={() => setNModo('unidades')}>
-            Unidades
-          </button>
-        </div>
-      </div>
 
       <div className="est-novo-acoes">
         <button className="btn-grande" onClick={criarProduto}>
