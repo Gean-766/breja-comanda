@@ -783,6 +783,7 @@ function Detalhe({ cliente, cervejas, consumos, resumo, parciais = [], onAdd, on
   const [confirmar, setConfirmar] = useState(null) // produto aguardando confirmação
   const [confPagto, setConfPagto] = useState(false) // confirmação de pagamento ao fechar
   const [parteAberto, setParteAberto] = useState(false) // modal "pagar parte" (conta dividida)
+  const [verPagos, setVerPagos] = useState(false) // modal com o movimento dos pagamentos parciais
   const [modoParte, setModoParte] = useState('garrafa') // 'garrafa' | 'valor'
   const [selGarrafas, setSelGarrafas] = useState({}) // {beer_nome: qtd escolhida}
   const [valorParte, setValorParte] = useState('')
@@ -1011,7 +1012,10 @@ function Detalhe({ cliente, cervejas, consumos, resumo, parciais = [], onAdd, on
           {temParcial && (
             <div className="parcial-linha">
               <span className="pl-cel">Total<b>{money(resumo.total)}</b></span>
-              <span className="pl-cel pl-pago">Pago<b>{money(pago)}</b></span>
+              <button className="pl-cel pl-pago pl-btn" onClick={() => setVerPagos(true)}>
+                Pago<b>{money(pago)}</b>
+                <em className="pl-ver">toque p/ ver ›</em>
+              </button>
               <span className="pl-cel pl-falta">
                 Falta<b>{money(falta)}</b>
                 {falta > 0 && garrafasFalta > 0 && (
@@ -1190,6 +1194,48 @@ function Detalhe({ cliente, cervejas, consumos, resumo, parciais = [], onAdd, on
           </div>
         </div>
       )}
+
+      {verPagos && (() => {
+        const lista = [...parciais].sort(
+          (a, b) => new Date(a.created_at) - new Date(b.created_at)
+        )
+        return (
+          <div className="pagos-overlay" onClick={() => setVerPagos(false)}>
+            <div className="pagos-box" onClick={(e) => e.stopPropagation()}>
+              <div className="pagos-topo">
+                <button className="voltar" onClick={() => setVerPagos(false)}>
+                  ‹ Voltar
+                </button>
+              </div>
+              <h3 className="pagos-tit">💰 Quem já pagou — {cliente.nome}</h3>
+              <div className="pagos-lista">
+                {lista.length === 0 && <p className="vazio">Nenhum pagamento ainda.</p>}
+                {lista.map((p, i) => (
+                  <div key={p.id} className="pagos-item">
+                    <span className="pagos-hora">🕐 {hora(p.created_at)}</span>
+                    <span className="pagos-desc">
+                      {i + 1}º pagamento{p.qtd ? ` · ${p.qtd} 🍺` : ''}
+                    </span>
+                    <span className="pagos-valor">{money(p.valor)}</span>
+                  </div>
+                ))}
+              </div>
+              <div className="pagos-total">
+                <span>Total pago</span>
+                <strong>{money(pago)}</strong>
+              </div>
+              {falta > 0 && (
+                <div className="pagos-falta">
+                  Ainda falta <strong>{money(falta)}</strong>
+                </div>
+              )}
+              <button className="pagos-voltar" onClick={() => setVerPagos(false)}>
+                Voltar
+              </button>
+            </div>
+          </div>
+        )
+      })()}
 
       {confirmar && (() => {
         const cor = corDe(confirmar.nome, confirmar.cor)
