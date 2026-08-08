@@ -664,8 +664,10 @@ button:active {
   position: sticky;
   bottom: 0;
   background: var(--card);
-  padding: 16px;
+  padding: 16px 16px calc(16px + env(safe-area-inset-bottom));
   border-top: 1px solid var(--card2);
+  border-radius: 18px 18px 0 0;
+  box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.45);
 }
 .rodape-top {
   display: flex;
@@ -2664,7 +2666,9 @@ input[type='number'] {
   display: flex;
   justify-content: center;
   gap: 8px;
-  margin-bottom: 12px;
+  margin-bottom: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--card2);
 }
 /* 1ª linha do rodapé: total à esquerda + "dividir" à direita, mesma linha */
 .rodape-linha1 {
@@ -2928,7 +2932,7 @@ input[type='number'] {
   font-weight: 700;
 }
 
-/* calculadora "dividir" na tela da mesa (discreta, ao lado do total) */
+/* calculadora "dividir" na tela da mesa (caixinha inset, destacada do rodapé) */
 .mesa-dividir {
   display: flex;
   flex-direction: column;
@@ -2936,7 +2940,7 @@ input[type='number'] {
   flex: 1 1 auto;
   min-width: 172px;
   padding: 8px 10px;
-  background: transparent;
+  background: var(--bg);
   border: 1px solid var(--card2);
   border-radius: 10px;
 }
