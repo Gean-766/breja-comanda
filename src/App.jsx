@@ -483,12 +483,15 @@ export default function App({ distribuidora = null, onSair = null }) {
 
   // CONTA DIVIDIDA: registra o quanto um amigo pagou (por garrafa ou por valor).
   // A mesa continua aberta mostrando "Falta pagar" até quitar tudo.
-  async function pagarParte(cliente_id, valor, qtd = null) {
+  async function pagarParte(cliente_id, valor, qtd = null, itens = null) {
     const v = Number(valor) || 0
     if (v <= 0) return
+    // guarda QUAIS garrafas foram pagas (no obs, em JSON) — assim a garrafa já paga
+    // some da lista de "escolher garrafas" e o verde/vermelho do movimento bate.
+    const obs = itens && itens.length ? JSON.stringify(itens) : null
     const { data, error } = await supabase
       .from('pagamentos_parciais')
-      .insert({ cliente_id, valor: v, qtd })
+      .insert({ cliente_id, valor: v, qtd, obs })
       .select()
       .single()
     if (error || !data) {
@@ -864,44 +867,70 @@ function Detalhe({ cliente, cervejas, consumos, resumo, parciais = [], onAdd, on
     return [...map.values()].sort((a, b) => b.qtd - a.qtd)
   }, [consumos])
 
-  // itens da mesa agrupados por produto (pro "pagar por garrafa")
-  const itensMesa = useMemo(() => {
-    const map = new Map()
-    for (const co of consumos) {
-      if (!map.has(co.beer_nome))
-        map.set(co.beer_nome, { nome: co.beer_nome, qtd: 0, preco: Number(co.preco_unit) })
-      const it = map.get(co.beer_nome)
-      it.qtd += co.quantidade
-      it.preco = Number(co.preco_unit)
-    }
-    return [...map.values()]
-  }, [consumos])
-
   // conta dividida: quanto já pagaram e quanto falta
   const pago = parciais.reduce((s, p) => s + Number(p.valor || 0), 0)
   const falta = Math.max(0, resumo.total - pago)
   const temParcial = pago > 0.009
   const quitado = temParcial && resumo.total > 0 && falta <= 0.009 // pago por completo via parciais
 
-  // garrafas pagas x faltando: expande em unidades (por horário) e vai marcando como
-  // paga enquanto o total pago cobre. Assim o "≈ N 🍺" BATE com o vermelho do movimento.
+  // garrafas pagas x faltando. Pagamento POR GARRAFA guarda QUAIS garrafas (JSON no
+  // campo obs) → marca exatamente esses produtos, então a Heineken já paga não volta
+  // pra lista. Pagamento POR VALOR não sabe qual garrafa → cobre o restante mais
+  // barato primeiro. Assim o vermelho mostra só o que realmente falta pagar.
   const garrafas = useMemo(() => {
+    const itensDoPagto = (p) => {
+      if (Array.isArray(p.itens)) return p.itens
+      if (p.obs) {
+        try {
+          const x = JSON.parse(p.obs)
+          return Array.isArray(x) ? x : null
+        } catch (_) {
+          return null
+        }
+      }
+      return null
+    }
     const uni = []
     for (const co of consumos)
       for (let k = 0; k < co.quantidade; k++)
-        uni.push({ nome: co.beer_nome, preco: Number(co.preco_unit), t: co.created_at })
+        uni.push({ nome: co.beer_nome, preco: Number(co.preco_unit), t: co.created_at, pago: false })
     uni.sort((a, b) => new Date(a.t) - new Date(b.t))
+
+    // 1) pagamentos por garrafa marcam produtos específicos
+    const pagoItens = new Map()
+    let valorGenerico = 0
+    for (const p of parciais) {
+      const its = itensDoPagto(p)
+      if (its && its.length) {
+        for (const it of its)
+          pagoItens.set(it.nome, (pagoItens.get(it.nome) || 0) + Number(it.qtd || 0))
+      } else {
+        valorGenerico += Number(p.valor || 0)
+      }
+    }
+    for (const [nome, q] of pagoItens) {
+      let restam = q
+      for (const u of uni) {
+        if (restam <= 0) break
+        if (u.nome === nome && !u.pago) {
+          u.pago = true
+          restam -= 1
+        }
+      }
+    }
+    // 2) pagamentos por valor cobrem o restante (mais barato primeiro)
     let acc = 0
-    for (const u of uni) {
-      if (acc + u.preco <= pago + 0.001) {
+    for (const u of uni.filter((x) => !x.pago).sort((a, b) => a.preco - b.preco)) {
+      if (acc + u.preco <= valorGenerico + 0.001) {
         u.pago = true
         acc += u.preco
-      } else u.pago = false
+      }
     }
+
     const agrupar = (lista) => {
       const m = new Map()
       for (const u of lista) {
-        if (!m.has(u.nome)) m.set(u.nome, { nome: u.nome, qtd: 0, total: 0 })
+        if (!m.has(u.nome)) m.set(u.nome, { nome: u.nome, qtd: 0, total: 0, preco: u.preco })
         const g = m.get(u.nome)
         g.qtd += 1
         g.total += u.preco
@@ -916,11 +945,14 @@ function Detalhe({ cliente, cervejas, consumos, resumo, parciais = [], onAdd, on
       pagasGrp: agrupar(pagas),
       pendentesGrp: agrupar(pend),
     }
-  }, [consumos, pago])
+  }, [consumos, parciais])
   const garrafasFalta = garrafas.nFalta
 
-  // seleção do "pagar por garrafa"
-  const somaGarrafas = itensMesa.reduce((s, it) => s + (selGarrafas[it.nome] || 0) * it.preco, 0)
+  // seleção do "pagar por garrafa" — a lista mostra SÓ o que ainda falta pagar
+  const somaGarrafas = garrafas.pendentesGrp.reduce(
+    (s, it) => s + (selGarrafas[it.nome] || 0) * it.preco,
+    0
+  )
   const qtdGarrafas = Object.values(selGarrafas).reduce((s, n) => s + n, 0)
   const valorDigitado = Number(String(valorParte).replace(',', '.')) || 0
 
@@ -946,21 +978,21 @@ function Detalhe({ cliente, cervejas, consumos, resumo, parciais = [], onAdd, on
     setModoParte('garrafa')
     setExcesso(null)
   }
-  function confirmarParte(valor, qtd) {
+  function confirmarParte(valor, qtd, itens = null) {
     if (!(valor > 0)) return
     // trava de limite: passou do que ainda falta? pede confirmação antes de cobrar a mais
     if (valor > falta + 0.001) {
-      setExcesso({ valor, qtd })
+      setExcesso({ valor, qtd, itens })
       return
     }
-    onPagarParte(cliente.id, valor, qtd)
+    onPagarParte(cliente.id, valor, qtd, itens)
     const zerou = resumo.total - (pago + valor) <= 0.009
     fecharParte()
     if (zerou) setConfPagto(true) // quitou → já oferece encerrar a comanda
   }
   function confirmarExcesso() {
     if (!excesso) return
-    onPagarParte(cliente.id, excesso.valor, excesso.qtd)
+    onPagarParte(cliente.id, excesso.valor, excesso.qtd, excesso.itens)
     fecharParte()
     setConfPagto(true) // recebeu o resto (ou mais) → oferece encerrar
   }
@@ -1229,10 +1261,10 @@ function Detalhe({ cliente, cervejas, consumos, resumo, parciais = [], onAdd, on
             {modoParte === 'garrafa' ? (
               <>
                 <div className="parte-itens">
-                  {itensMesa.length === 0 && (
-                    <p className="vazio">Nada lançado ainda.</p>
+                  {garrafas.pendentesGrp.length === 0 && (
+                    <p className="vazio">Tudo pago! 🎉 Nada faltando.</p>
                   )}
-                  {itensMesa.map((it) => {
+                  {garrafas.pendentesGrp.map((it) => {
                     const sel = selGarrafas[it.nome] || 0
                     const passou = sel > it.qtd
                     return (
@@ -1240,7 +1272,7 @@ function Detalhe({ cliente, cervejas, consumos, resumo, parciais = [], onAdd, on
                         <div className="pi-txt">
                           <span className="pi-nome">{it.nome}</span>
                           <span className="pi-preco">
-                            {money(it.preco)} · {it.qtd} na mesa
+                            {money(it.preco)} · falta {it.qtd}
                             {passou && <em className="pi-alerta"> ⚠️ passou de {it.qtd}</em>}
                           </span>
                         </div>
@@ -1256,7 +1288,12 @@ function Detalhe({ cliente, cervejas, consumos, resumo, parciais = [], onAdd, on
                 <button
                   className="parte-confirmar"
                   disabled={somaGarrafas <= 0}
-                  onClick={() => confirmarParte(somaGarrafas, qtdGarrafas)}
+                  onClick={() => {
+                    const itensPagos = garrafas.pendentesGrp
+                      .filter((it) => (selGarrafas[it.nome] || 0) > 0)
+                      .map((it) => ({ nome: it.nome, qtd: selGarrafas[it.nome], preco: it.preco }))
+                    confirmarParte(somaGarrafas, qtdGarrafas, itensPagos)
+                  }}
                 >
                   ✓ Receber {money(somaGarrafas)}
                   {qtdGarrafas > 0 && <span className="pc-sub"> ({qtdGarrafas} 🍺)</span>}
