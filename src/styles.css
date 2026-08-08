@@ -2572,15 +2572,24 @@ input[type='number'] {
   font-weight: 900;
 }
 
-/* ----- Rodapé da mesa: dois botões lado a lado ----- */
+/* ----- Rodapé da mesa: botões secundários centralizados ----- */
 .rodape-botoes {
   display: flex;
+  justify-content: center;
   gap: 8px;
   margin-bottom: 12px;
 }
-/* total no topo do rodapé (linha própria, largura cheia) */
-.total-topo {
+/* 1ª linha do rodapé: total à esquerda + "dividir" à direita, mesma linha */
+.rodape-linha1 {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
   margin-bottom: 12px;
+}
+.total-topo {
+  margin-bottom: 0;
+  flex: 1 1 auto;
 }
 .btn-parte {
   padding: 12px 14px;
@@ -2768,12 +2777,13 @@ input[type='number'] {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  padding: 12px;
-  background: var(--bg);
-  border-radius: 12px;
+  padding: 10px 12px;
+  background: transparent;
+  border: 1px solid var(--card2);
+  border-radius: 10px;
 }
 .pd-lbl {
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 700;
   color: var(--muted);
 }
@@ -2799,13 +2809,15 @@ input[type='number'] {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  margin-bottom: 12px;
-  padding: 10px 12px;
-  background: var(--bg);
-  border-radius: 12px;
+  flex: 1 1 auto;
+  min-width: 172px;
+  padding: 8px 10px;
+  background: transparent;
+  border: 1px solid var(--card2);
+  border-radius: 10px;
 }
 .md-lbl {
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 700;
   color: var(--muted);
 }

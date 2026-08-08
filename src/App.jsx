@@ -812,7 +812,7 @@ function Detalhe({ cliente, cervejas, consumos, resumo, parciais = [], onAdd, on
   const [selGarrafas, setSelGarrafas] = useState({}) // {beer_nome: qtd escolhida}
   const [valorParte, setValorParte] = useState('')
   const [pessoas, setPessoas] = useState(0) // dividir a conta entre N pessoas (modo valor)
-  const [dividirN, setDividirN] = useState(2) // calculadora "dividir" na tela da mesa
+  const [dividirN, setDividirN] = useState(1) // calculadora "dividir" na tela da mesa
 
   const reprDe = (c) => (c.tamanho ? `${c.nome} ${c.tamanho}` : c.nome)
 
@@ -1131,28 +1131,28 @@ function Detalhe({ cliente, cervejas, consumos, resumo, parciais = [], onAdd, on
         </div>
 
         <footer className="det-rodape">
-          {/* 1º — total consumido */}
-          <div className="total-grande total-topo">
-            <span className="tg-itens">{resumo.qtd} produtos</span>
-            <strong>{money(resumo.total)}</strong>
-          </div>
-
-          {/* calculadora rápida: dividir o que falta entre N pessoas */}
-          {falta > 0 && (
-            <div className="mesa-dividir">
-              <span className="md-lbl">Dividir entre quantas pessoas?</span>
-              <div className="md-ctrl">
-                <div className="md-step">
-                  <button onClick={() => setDividirN((n) => Math.max(1, n - 1))} disabled={dividirN <= 1}>
-                    −
-                  </button>
-                  <strong>{dividirN}</strong>
-                  <button onClick={() => setDividirN((n) => n + 1)}>+</button>
-                </div>
-                <span className="md-eq">= {money(falta / dividirN)} cada</span>
-              </div>
+          {/* 1ª linha — total à esquerda + calculadora "dividir" à direita */}
+          <div className="rodape-linha1">
+            <div className="total-grande total-topo">
+              <span className="tg-itens">{resumo.qtd} produtos</span>
+              <strong>{money(resumo.total)}</strong>
             </div>
-          )}
+            {falta > 0 && (
+              <div className="mesa-dividir">
+                <span className="md-lbl">Dividir entre quantas pessoas?</span>
+                <div className="md-ctrl">
+                  <div className="md-step">
+                    <button onClick={() => setDividirN((n) => Math.max(1, n - 1))} disabled={dividirN <= 1}>
+                      −
+                    </button>
+                    <strong>{dividirN}</strong>
+                    <button onClick={() => setDividirN((n) => n + 1)}>+</button>
+                  </div>
+                  <span className="md-eq">= {money(falta / dividirN)} cada</span>
+                </div>
+              </div>
+            )}
+          </div>
 
           {/* 2º — pago / falta (só quando há pagamento parcial) */}
           {temParcial && (
@@ -1280,10 +1280,7 @@ function Detalhe({ cliente, cervejas, consumos, resumo, parciais = [], onAdd, on
               </button>
               <button
                 className={modoParte === 'valor' ? 'pm on' : 'pm'}
-                onClick={() => {
-                  setModoParte('valor')
-                  if (falta > 0) escolherPessoas(2)
-                }}
+                onClick={() => setModoParte('valor')}
               >
                 💵 Digitar valor
               </button>
@@ -1338,16 +1335,16 @@ function Detalhe({ cliente, cervejas, consumos, resumo, parciais = [], onAdd, on
                     <div className="pd-ctrl">
                       <div className="pi-step">
                         <button
-                          onClick={() => escolherPessoas(Math.max(1, (pessoas || 2) - 1))}
-                          disabled={(pessoas || 2) <= 1}
+                          onClick={() => escolherPessoas(Math.max(1, (pessoas || 1) - 1))}
+                          disabled={(pessoas || 1) <= 1}
                         >
                           −
                         </button>
-                        <strong>{pessoas || 2}</strong>
-                        <button onClick={() => escolherPessoas((pessoas || 2) + 1)}>+</button>
+                        <strong>{pessoas || 1}</strong>
+                        <button onClick={() => escolherPessoas((pessoas || 1) + 1)}>+</button>
                       </div>
                       <span className="pd-cada">
-                        {money(falta / (pessoas || 2))} <em>cada</em>
+                        {money(falta / (pessoas || 1))} <em>cada</em>
                       </span>
                     </div>
                   </div>
