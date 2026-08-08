@@ -1431,6 +1431,7 @@ function Detalhe({ cliente, cervejas, consumos, resumo, parciais = [], onAdd, on
         const pagamentos = [...parciais].sort(
           (a, b) => new Date(a.created_at) - new Date(b.created_at)
         )
+        const pct = resumo.total > 0 ? Math.min(100, Math.round((pago / resumo.total) * 100)) : 0
         return (
           <div className="pagos-overlay" onClick={() => setVerPagos(false)}>
             <div className="pagos-box" onClick={(e) => e.stopPropagation()}>
@@ -1441,6 +1442,21 @@ function Detalhe({ cliente, cervejas, consumos, resumo, parciais = [], onAdd, on
               </div>
               <h3 className="pagos-tit">🧾 Movimento — {cliente.nome}</h3>
 
+              {/* resumo rápido: barra de progresso pago × falta */}
+              <div className="mov-resumo">
+                <div className="mov-barra">
+                  <div className="mov-barra-fill" style={{ width: pct + '%' }} />
+                </div>
+                <div className="mov-nums">
+                  <span className="mn-pago">
+                    ✓ Pago <b>{money(pago)}</b> <em>de {money(resumo.total)}</em>
+                  </span>
+                  <span className="mn-falta">
+                    Falta <b>{money(falta)}</b>
+                  </span>
+                </div>
+              </div>
+
               <div className="pagos-lista">
                 {garrafas.nPagas === 0 && garrafas.nFalta === 0 && (
                   <p className="vazio">Nada lançado ainda.</p>
@@ -1449,7 +1465,7 @@ function Detalhe({ cliente, cervejas, consumos, resumo, parciais = [], onAdd, on
                 {/* garrafas pagas — verde */}
                 {garrafas.pagasGrp.length > 0 && (
                   <div className="mov-bloco mov-bloco-pago">
-                    <span className="mov-bloco-tit">✓ Pagas · {garrafas.nPagas} 🍺</span>
+                    <span className="mov-bloco-tit">✓ Já pago · {garrafas.nPagas} 🍺</span>
                     {garrafas.pagasGrp.map((g) => (
                       <div key={'pg' + g.nome} className="mov-linha">
                         <span className="mov-q">{g.qtd}×</span>
@@ -1463,7 +1479,7 @@ function Detalhe({ cliente, cervejas, consumos, resumo, parciais = [], onAdd, on
                 {/* garrafas faltando — vermelho */}
                 {garrafas.pendentesGrp.length > 0 && (
                   <div className="mov-bloco mov-bloco-falta">
-                    <span className="mov-bloco-tit">✗ Faltando · {garrafas.nFalta} 🍺</span>
+                    <span className="mov-bloco-tit">Falta pagar · {garrafas.nFalta} 🍺</span>
                     {garrafas.pendentesGrp.map((g) => (
                       <div key={'pd' + g.nome} className="mov-linha">
                         <span className="mov-q">{g.qtd}×</span>
@@ -1474,14 +1490,16 @@ function Detalhe({ cliente, cervejas, consumos, resumo, parciais = [], onAdd, on
                   </div>
                 )}
 
-                {/* quando pagou (horários) */}
+                {/* quando pagaram (horários) */}
                 {pagamentos.length > 0 && (
                   <div className="mov-pagtos">
-                    <span className="mov-pagtos-tit">💰 Pagamentos</span>
+                    <span className="mov-pagtos-tit">🕐 Quando pagaram</span>
                     {pagamentos.map((p) => (
                       <div key={p.id} className="mov-pagto">
-                        <span className="pagos-hora">🕐 {hora(p.created_at)}</span>
-                        <span className="mov-pagto-desc">{p.qtd ? `${p.qtd} 🍺` : 'valor'}</span>
+                        <span className="pagos-hora">{hora(p.created_at)}</span>
+                        <span className="mov-pagto-desc">
+                          {p.qtd ? `${p.qtd} 🍺` : 'por valor'}
+                        </span>
                         <span className="mov-pagto-v">{money(p.valor)}</span>
                       </div>
                     ))}
@@ -1489,20 +1507,6 @@ function Detalhe({ cliente, cervejas, consumos, resumo, parciais = [], onAdd, on
                 )}
               </div>
 
-              <div className="pagos-resumo">
-                <div className="pr-linha">
-                  <span>Total</span>
-                  <b>{money(resumo.total)}</b>
-                </div>
-                <div className="pr-linha pr-pago">
-                  <span>Já pago</span>
-                  <b>{money(pago)}</b>
-                </div>
-                <div className="pr-linha pr-falta">
-                  <span>Falta</span>
-                  <b>{money(falta)}</b>
-                </div>
-              </div>
               <button className="pagos-voltar" onClick={() => setVerPagos(false)}>
                 Voltar
               </button>

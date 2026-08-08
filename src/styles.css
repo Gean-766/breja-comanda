@@ -3286,3 +3286,45 @@ input[type='number'] {
   font-weight: 800;
   color: var(--accent2);
 }
+/* resumo rápido do movimento: barra de progresso pago × falta */
+.mov-resumo {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.mov-barra {
+  height: 10px;
+  border-radius: 999px;
+  background: rgba(224, 83, 61, 0.28);
+  overflow: hidden;
+}
+.mov-barra-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--accent2);
+  transition: width 0.35s ease;
+}
+.mov-nums {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--muted);
+}
+.mn-pago {
+  flex: 1;
+}
+.mn-pago b {
+  color: var(--accent2);
+  font-size: 17px;
+}
+.mn-pago em {
+  font-style: normal;
+  color: var(--muted);
+  font-weight: 600;
+}
+.mn-falta b {
+  color: var(--danger);
+  font-size: 17px;
+}
