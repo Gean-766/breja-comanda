@@ -635,6 +635,10 @@ button:active {
   color: var(--accent2);
   line-height: 1;
 }
+/* quando o número grande mostra o que FALTA, fica num vermelho suave */
+.total-grande strong.tg-falta {
+  color: #ef7f70;
+}
 .btn-resumo {
   padding: 12px 16px;
   border: 2px solid var(--card2);

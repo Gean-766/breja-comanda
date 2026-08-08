@@ -1141,7 +1141,9 @@ function Detalhe({ cliente, cervejas, consumos, resumo, parciais = [], onAdd, on
                     ? `Falta pagar${garrafasFalta > 0 ? ` · ≈ ${garrafasFalta} 🍺` : ''}`
                     : `${resumo.qtd} produtos`}
               </span>
-              <strong>{money(temParcial && !quitado ? falta : resumo.total)}</strong>
+              <strong className={temParcial && !quitado ? 'tg-falta' : ''}>
+                {money(temParcial && !quitado ? falta : resumo.total)}
+              </strong>
             </div>
             {falta > 0 && (
               <div className="mesa-dividir">
