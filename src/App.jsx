@@ -2868,12 +2868,9 @@ function AbaEstoque({ cervejas, setCervejas, entradas, setEntradas, consumos, on
   // ---------- TOPO: Meu estoque (visão geral) | Cadastrar ----------
   const overviewRows = busca.trim() ? listaFiltrada : lista
   const nRepor = lista.filter((i) => i.nivel === 'zero' || i.nivel === 'baixo').length
-  const irPara = (it) => {
-    setBusca('')
-    setVista('cadastro')
-    setPastaAberta(pastaDe(it.c))
-    setAbertoId(it.c.id)
-  }
+  const totalUn = lista.reduce((s, it) => s + (it.controlado ? it.saldo : 0), 0)
+  const statusLabel = (n) =>
+    ({ zero: 'Acabou', baixo: 'Acabando', ok: 'Em estoque', novo: 'Sem contagem' }[n] || '')
 
   return (
     <main className="conteudo">
@@ -2930,26 +2927,69 @@ function AbaEstoque({ cervejas, setCervejas, entradas, setEntradas, consumos, on
                   <b>{nRepor}</b>
                   <span>pra repor</span>
                 </div>
+                <div>
+                  <b>{totalUn}</b>
+                  <span>unidades</span>
+                </div>
               </div>
             )}
             {overviewRows.length === 0 ? (
               <p className="vazio">Nenhum produto com esse nome.</p>
             ) : (
-              <div className="est-vg-lista">
-                {overviewRows.map((it) => (
-                  <button
-                    key={it.c.id}
-                    className="est-vg-row"
-                    onClick={() => irPara(it)}
-                  >
-                    <span className={'est-vg-status est-' + it.nivel} />
-                    <span className="est-vg-nome">{reprDe(it.c)}</span>
-                    <span className={'est-vg-saldo est-' + it.nivel}>
-                      {it.controlado ? it.saldo : '—'}
-                      <small> un.</small>
-                    </span>
-                  </button>
-                ))}
+              <div className="est-ov-lista">
+                {overviewRows.map((it) => {
+                  const upc = Number(it.c.unidades_caixa) || 0
+                  const cx = upc > 0 ? Math.floor(it.saldo / upc) : 0
+                  const resto = upc > 0 ? it.saldo % upc : 0
+                  const caixaTxt =
+                    upc > 0
+                      ? cx > 0
+                        ? `${cx} cx${resto > 0 ? ` + ${resto} un` : ''}`
+                        : `${resto} un`
+                      : null
+                  const valor = it.saldo * (Number(it.c.preco) || 0)
+                  return (
+                    <div key={it.c.id} className={'est-ov-card est-ovc-' + it.nivel}>
+                      <div className="est-ov-top">
+                        <span className={'est-vg-status est-' + it.nivel} />
+                        <div className="est-ov-id">
+                          <span className="est-ov-nome">{reprDe(it.c)}</span>
+                          <span className={'est-ov-tag est-' + it.nivel}>
+                            {statusLabel(it.nivel)}
+                          </span>
+                        </div>
+                        <div className="est-ov-saldo-wrap">
+                          <b className={'est-ov-saldo est-' + it.nivel}>
+                            {it.controlado ? it.saldo : '—'}
+                          </b>
+                          <small>un.</small>
+                        </div>
+                      </div>
+                      {it.controlado ? (
+                        <div className="est-ov-stats">
+                          {caixaTxt && <span className="est-ov-chip">📦 {caixaTxt}</span>}
+                          <span className="est-ov-chip">📥 entrou {it.entrou}</span>
+                          <span className="est-ov-chip">📤 saiu {it.saiu}</span>
+                          {Number(it.c.preco) > 0 && (
+                            <span className="est-ov-chip">🏷️ {money(it.c.preco)}</span>
+                          )}
+                          {valor > 0 && (
+                            <span className="est-ov-chip est-ov-chip-forte">
+                              💰 {money(valor)} em estoque
+                            </span>
+                          )}
+                          {it.min > 0 && (
+                            <span className="est-ov-chip">🔔 avisa ≤ {it.min}</span>
+                          )}
+                        </div>
+                      ) : (
+                        <p className="est-ov-semctrl">
+                          Sem contagem — faça no <b>✏️ Cadastrar</b>
+                        </p>
+                      )}
+                    </div>
+                  )
+                })}
               </div>
             )}
           </>

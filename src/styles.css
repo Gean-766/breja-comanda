@@ -1984,6 +1984,122 @@ input[type='number'] {
   color: var(--accent);
 }
 
+/* Meu estoque — cards visuais (só leitura, sem virar botão) */
+.est-ov-lista {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.est-ov-card {
+  background: var(--card);
+  border-radius: 14px;
+  padding: 14px;
+  border-left: 4px solid var(--card2);
+}
+.est-ovc-zero {
+  border-left-color: var(--danger);
+}
+.est-ovc-baixo {
+  border-left-color: var(--accent);
+}
+.est-ovc-ok {
+  border-left-color: var(--accent2);
+}
+.est-ov-top {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.est-ov-id {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.est-ov-nome {
+  font-size: 18px;
+  font-weight: 800;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.est-ov-tag {
+  align-self: flex-start;
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--card2);
+  color: var(--muted);
+}
+.est-ov-tag.est-zero {
+  background: rgba(224, 83, 61, 0.18);
+  color: var(--danger);
+}
+.est-ov-tag.est-baixo {
+  background: rgba(212, 162, 60, 0.18);
+  color: var(--accent);
+}
+.est-ov-tag.est-ok {
+  background: rgba(47, 174, 91, 0.16);
+  color: var(--accent2);
+}
+.est-ov-saldo-wrap {
+  display: flex;
+  align-items: baseline;
+  gap: 3px;
+  flex-shrink: 0;
+}
+.est-ov-saldo {
+  font-size: 30px;
+  font-weight: 900;
+  line-height: 1;
+  color: var(--text);
+}
+.est-ov-saldo.est-zero {
+  color: var(--danger);
+}
+.est-ov-saldo.est-baixo {
+  color: var(--accent);
+}
+.est-ov-saldo.est-ok {
+  color: var(--accent2);
+}
+.est-ov-saldo.est-novo {
+  color: var(--muted);
+}
+.est-ov-saldo-wrap small {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--muted);
+}
+.est-ov-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 12px;
+}
+.est-ov-chip {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
+  background: var(--bg);
+  border-radius: 8px;
+  padding: 5px 9px;
+}
+.est-ov-chip-forte {
+  color: var(--accent2);
+}
+.est-ov-semctrl {
+  margin: 12px 0 0;
+  font-size: 13px;
+  color: var(--muted);
+  font-weight: 600;
+}
+
 /* lista de pastas (drill-down) */
 .est-folders {
   display: flex;
