@@ -390,6 +390,62 @@ button:active {
   font-size: 32px;
   color: var(--accent);
 }
+/* nome + lápis pra editar */
+.det-nome {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.det-nome h2 {
+  margin: 12px 0 0;
+}
+.det-editar {
+  margin-top: 12px;
+  width: 40px;
+  height: 40px;
+  border: 1px solid var(--card2);
+  border-radius: 10px;
+  background: var(--card);
+  font-size: 18px;
+  line-height: 1;
+}
+/* modo edição do nome */
+.det-nome-edit {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+}
+.det-nome-input {
+  flex: 1;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 2px solid var(--accent);
+  border-radius: 10px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 24px;
+  font-weight: 800;
+}
+.det-nome-ok,
+.det-nome-cancel {
+  width: 44px;
+  height: 44px;
+  border: none;
+  border-radius: 10px;
+  font-size: 18px;
+  font-weight: 900;
+  line-height: 1;
+  flex-shrink: 0;
+}
+.det-nome-ok {
+  background: var(--accent2);
+  color: #06210f;
+}
+.det-nome-cancel {
+  background: var(--card2);
+  color: var(--text);
+}
 
 .stepper {
   display: flex;

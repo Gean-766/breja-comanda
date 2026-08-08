@@ -269,6 +269,8 @@ export default function App({ distribuidora = null, onSair = null }) {
         await supabase.from('clientes').delete().eq('id', p.cliente.id)
       } else if (h.tipo === 'pagar_parte') {
         await supabase.from('pagamentos_parciais').delete().eq('id', p.parcial.id)
+      } else if (h.tipo === 'renomear_cliente') {
+        await supabase.from('clientes').update({ nome: p.antes }).eq('id', p.id)
       } else {
         return
       }
@@ -426,6 +428,24 @@ export default function App({ distribuidora = null, onSair = null }) {
           : null,
       })
     }
+  }
+
+  // Renomear a comanda (o lápis na tela da mesa). Ex.: Fernando saiu, entrou Gustavo.
+  async function renomearCliente(cliente_id, novoNome) {
+    let nome = (novoNome || '').trim()
+    if (!nome) return
+    if (modoMesa && /^\d+$/.test(nome)) nome = 'Mesa ' + nome
+    const cli = clientes.find((c) => c.id === cliente_id)
+    const antes = cli?.nome
+    if (nome === antes) return
+    setClientes((cs) => cs.map((c) => (c.id === cliente_id ? { ...c, nome } : c)))
+    const { error } = await supabase.from('clientes').update({ nome }).eq('id', cliente_id)
+    if (error) {
+      setClientes((cs) => cs.map((c) => (c.id === cliente_id ? { ...c, nome: antes } : c)))
+      erro('⚠️ Não consegui renomear. Sem conexão?')
+      return
+    }
+    registrar('renomear_cliente', `Renomeou "${antes}" → "${nome}"`, { id: cliente_id, antes })
   }
 
   // Ao sair de uma comanda (‹ Voltar): faxina pedida pelo lojista.
@@ -684,6 +704,7 @@ export default function App({ distribuidora = null, onSair = null }) {
           onPagarParte={pagarParte}
           onFechar={fecharConta}
           onExcluir={excluirCliente}
+          onRenomear={renomearCliente}
           onVoltar={sairDaComanda}
         />
       )}
@@ -796,8 +817,10 @@ function sugerir(texto, lista) {
 
 const sugerirMarcas = (texto) => sugerir(texto, MARCAS_POPULARES)
 
-function Detalhe({ cliente, cervejas, consumos, resumo, parciais = [], onAdd, onRemove, onPagarParte, onFechar, onExcluir, onVoltar }) {
+function Detalhe({ cliente, cervejas, consumos, resumo, parciais = [], onAdd, onRemove, onPagarParte, onFechar, onExcluir, onRenomear, onVoltar }) {
   const [qtd, setQtd] = useState(1)
+  const [editNome, setEditNome] = useState(false) // editando o nome da comanda
+  const [nomeEdit, setNomeEdit] = useState('')
   const [buscaProd, setBuscaProd] = useState('')
   const [mostrarTodos, setMostrarTodos] = useState(false)
   const [ultimoTocado, setUltimoTocado] = useState(null) // só p/ a animação
@@ -1011,6 +1034,11 @@ function Detalhe({ cliente, cervejas, consumos, resumo, parciais = [], onAdd, on
     fecharParte()
     setConfPagto(true) // recebeu o resto (ou mais) → oferece encerrar
   }
+  function salvarNome() {
+    const n = nomeEdit.trim()
+    if (n && n !== cliente.nome) onRenomear(cliente.id, n)
+    setEditNome(false)
+  }
 
   return (
     <div className="overlay">
@@ -1034,7 +1062,45 @@ function Detalhe({ cliente, cervejas, consumos, resumo, parciais = [], onAdd, on
               ✕ Excluir
             </button>
           </div>
-          <h2>{cliente.nome}</h2>
+          {editNome ? (
+            <div className="det-nome-edit">
+              <input
+                className="det-nome-input"
+                value={nomeEdit}
+                autoFocus
+                placeholder="Nome da comanda"
+                onChange={(e) => setNomeEdit(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') salvarNome()
+                  if (e.key === 'Escape') setEditNome(false)
+                }}
+              />
+              <button className="det-nome-ok" onClick={salvarNome} aria-label="Salvar nome">
+                ✓
+              </button>
+              <button
+                className="det-nome-cancel"
+                onClick={() => setEditNome(false)}
+                aria-label="Cancelar"
+              >
+                ✕
+              </button>
+            </div>
+          ) : (
+            <div className="det-nome">
+              <h2>{cliente.nome}</h2>
+              <button
+                className="det-editar"
+                onClick={() => {
+                  setNomeEdit(cliente.nome)
+                  setEditNome(true)
+                }}
+                aria-label="Editar nome"
+              >
+                ✏️
+              </button>
+            </div>
+          )}
         </header>
 
         <div className="stepper">
