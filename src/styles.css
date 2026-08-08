@@ -2492,3 +2492,322 @@ input[type='number'] {
   line-height: 1.5;
   color: var(--muted);
 }
+
+/* ============================================================
+   Venda rápida (balcão) · Conta dividida · Fechamento por dia
+   ============================================================ */
+
+/* ----- Botão de venda rápida na tela de Comandas ----- */
+.btn-balcao {
+  width: 100%;
+  margin: 4px 0 10px;
+  padding: 14px;
+  border: none;
+  border-radius: 12px;
+  background: linear-gradient(90deg, var(--accent), #e6b74a);
+  color: var(--accent-dark);
+  font-size: 17px;
+  font-weight: 900;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.btn-balcao .bb-sub {
+  font-size: 13px;
+  font-weight: 700;
+  opacity: 0.72;
+}
+.balcao-dica {
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 600;
+}
+/* contador em cima do card de produto (quantas já foram pro carrinho) */
+.pc-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  height: 22px;
+  margin-left: 8px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.35);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 900;
+}
+
+/* ----- Steppers (usado no carrinho do balcão e no "pagar por garrafa") ----- */
+.pi-step,
+.balcao-step {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.pi-step button,
+.balcao-step button {
+  width: 34px;
+  height: 34px;
+  border: none;
+  border-radius: 9px;
+  background: var(--card2);
+  color: var(--text);
+  font-size: 20px;
+  font-weight: 900;
+  line-height: 1;
+}
+.pi-step button:disabled,
+.balcao-step button:disabled {
+  opacity: 0.35;
+}
+.pi-step strong,
+.balcao-step strong {
+  min-width: 22px;
+  text-align: center;
+  font-size: 18px;
+  font-weight: 900;
+}
+
+/* ----- Rodapé da mesa: dois botões lado a lado ----- */
+.rodape-botoes {
+  display: flex;
+  gap: 8px;
+}
+.btn-parte {
+  padding: 12px 14px;
+  border: 2px solid var(--accent);
+  border-radius: 12px;
+  background: var(--bg);
+  color: var(--accent);
+  font-size: 15px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+.btn-parte:disabled {
+  opacity: 0.4;
+  border-color: var(--card2);
+  color: var(--muted);
+}
+
+/* ----- Linha Total · Pago · Falta (quando há pagamento parcial) ----- */
+.parcial-linha {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.pl-cel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: var(--bg);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+.pl-cel b {
+  font-size: 18px;
+  color: var(--text);
+}
+.pl-pago b {
+  color: var(--accent2);
+}
+.pl-falta {
+  background: rgba(224, 83, 61, 0.14);
+}
+.pl-falta b {
+  color: var(--danger);
+}
+.pl-aprox {
+  font-style: normal;
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 1px;
+}
+.pag-sub {
+  text-align: center;
+  font-size: 14px;
+  color: var(--muted);
+  margin-top: -4px;
+}
+
+/* ----- Modal "Pagar parte" / dividir a conta ----- */
+.parte-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+.parte-box {
+  width: 100%;
+  max-width: 480px;
+  max-height: 90vh;
+  background: var(--card);
+  border-radius: 20px 20px 0 0;
+  padding: 20px 18px calc(18px + env(safe-area-inset-bottom));
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  box-shadow: 0 -8px 40px rgba(0, 0, 0, 0.5);
+  animation: pag-up 0.2s ease;
+}
+.parte-tit {
+  margin: 0;
+  text-align: center;
+  font-size: 18px;
+  font-weight: 800;
+  color: var(--accent);
+}
+.parte-falta {
+  text-align: center;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--muted);
+}
+.parte-falta strong {
+  font-size: 22px;
+  color: var(--danger);
+}
+.parte-falta em {
+  font-style: normal;
+  color: var(--muted);
+}
+.parte-modos {
+  display: flex;
+  gap: 8px;
+}
+.pm {
+  flex: 1;
+  padding: 12px;
+  border: 2px solid var(--card2);
+  border-radius: 12px;
+  background: var(--bg);
+  color: var(--muted);
+  font-size: 15px;
+  font-weight: 800;
+}
+.pm.on {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--accent-dark);
+}
+.parte-itens {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 42vh;
+  overflow-y: auto;
+}
+.pi-linha {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  background: var(--bg);
+  border-radius: 12px;
+}
+.pi-txt {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.pi-nome {
+  font-size: 17px;
+  font-weight: 700;
+}
+.pi-preco {
+  font-size: 13px;
+  color: var(--muted);
+  font-weight: 600;
+}
+.parte-input {
+  width: 100%;
+  padding: 15px 16px;
+  border: 2px solid var(--card2);
+  border-radius: 12px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 20px;
+  font-weight: 800;
+  text-align: center;
+}
+.parte-atalhos {
+  display: flex;
+  gap: 8px;
+}
+.parte-atalhos button {
+  flex: 1;
+  padding: 11px;
+  border: 2px solid var(--card2);
+  border-radius: 10px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 800;
+}
+.parte-confirmar {
+  width: 100%;
+  padding: 16px;
+  border: none;
+  border-radius: 14px;
+  background: var(--accent2);
+  color: #06210f;
+  font-size: 18px;
+  font-weight: 900;
+}
+.parte-confirmar:disabled {
+  opacity: 0.4;
+}
+.parte-confirmar .pc-sub {
+  font-size: 14px;
+  font-weight: 800;
+  opacity: 0.85;
+}
+.parte-cancelar {
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font-size: 15px;
+  font-weight: 700;
+  padding: 4px;
+}
+
+/* ----- Relatório: seletor de dia (fechamento por data) ----- */
+.rel-dia {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin: -6px 0 16px;
+  padding: 12px 14px;
+  background: var(--card);
+  border-radius: 12px;
+}
+.rel-dia-lbl {
+  font-size: 15px;
+  font-weight: 800;
+  color: var(--accent);
+}
+.rel-dia-input {
+  flex: 1;
+  min-width: 150px;
+  padding: 10px 12px;
+  border: 2px solid var(--card2);
+  border-radius: 10px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 16px;
+  font-weight: 700;
+  color-scheme: dark;
+}

@@ -93,9 +93,11 @@ export default function App({ distribuidora = null, onSair = null }) {
   const [historico, setHistorico] = useState([])
   const [entradas, setEntradas] = useState([]) // entradas de estoque (módulo Estoque)
   const [pagas, setPagas] = useState([]) // comandas já pagas nos últimos 30d (módulo Relatório)
+  const [parciais, setParciais] = useState([]) // pagamentos parciais das comandas abertas (conta dividida)
   const [busca, setBusca] = useState('')
   const [novoNome, setNovoNome] = useState('')
   const [abertoId, setAbertoId] = useState(null) // cliente aberto na tela de detalhe
+  const [balcaoAberto, setBalcaoAberto] = useState(false) // overlay da venda rápida (balcão)
   const [carregando, setCarregando] = useState(true)
   const [toast, setToast] = useState(null)
   const toastTimer = useRef()
@@ -136,6 +138,17 @@ export default function App({ distribuidora = null, onSair = null }) {
       const qe = meu(supabase.from('estoque_entradas').select('*'))
       const re = await qe.order('created_at', { ascending: false })
       setEntradas(re.data || [])
+    }
+
+    // Conta dividida: pagamentos parciais das comandas ainda abertas. Fica à
+    // parte (fora do Promise.all) pra não derrubar o resto se a tabela ainda
+    // não existir no banco — o app degrada sozinho até rodar o SQL.
+    const abertosIds = (c2.data || []).map((c) => c.id)
+    if (abertosIds.length) {
+      const rpp = await meu(supabase.from('pagamentos_parciais').select('*')).in('cliente_id', abertosIds)
+      setParciais(rpp.error ? [] : rpp.data || [])
+    } else {
+      setParciais([])
     }
 
     // Relatório precisa das comandas JÁ PAGAS pra montar o "recebido" (as abertas
@@ -182,6 +195,7 @@ export default function App({ distribuidora = null, onSair = null }) {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'cervejas' }, recarregar)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'historico' }, recarregar)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'estoque_entradas' }, recarregar)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'pagamentos_parciais' }, recarregar)
       .subscribe()
 
     // rede de segurança: se o tempo real cair (celular parado/bloqueado),
@@ -250,6 +264,11 @@ export default function App({ distribuidora = null, onSair = null }) {
           .eq('id', p.id)
       } else if (h.tipo === 'mudar_preco') {
         await supabase.from('cervejas').update({ preco: p.antes }).eq('id', p.id)
+      } else if (h.tipo === 'venda_balcao') {
+        // apaga a venda de balcão (a comanda fechada + os consumos, em cascata)
+        await supabase.from('clientes').delete().eq('id', p.cliente.id)
+      } else if (h.tipo === 'pagar_parte') {
+        await supabase.from('pagamentos_parciais').delete().eq('id', p.parcial.id)
       } else {
         return
       }
@@ -409,6 +428,61 @@ export default function App({ distribuidora = null, onSair = null }) {
     }
   }
 
+  // VENDA DE BALCÃO (venda rápida): "pediu, pagou e levou". Não abre comanda com
+  // nome — cria uma comanda já FECHADA na hora com os itens. Assim o estoque baixa
+  // e o relatório conta, exatamente como qualquer venda, sem trabalho extra.
+  async function venderBalcao(itens) {
+    if (!itens?.length) return
+    const nome = 'Balcão ' + hora(Date.now())
+    const pago_em = new Date().toISOString()
+    const { data: cli, error } = await supabase
+      .from('clientes')
+      .insert({ nome, aberto: false, pago_em })
+      .select()
+      .single()
+    if (error || !cli) {
+      erro('⚠️ Não consegui registrar a venda. Sem conexão?')
+      return
+    }
+    const linhas = itens.map((it) => ({
+      cliente_id: cli.id,
+      beer_nome: it.cerveja.tamanho ? `${it.cerveja.nome} ${it.cerveja.tamanho}` : it.cerveja.nome,
+      preco_unit: it.cerveja.preco,
+      quantidade: it.qtd,
+    }))
+    const { data: cons } = await supabase.from('consumos').insert(linhas).select()
+    if (cons?.length) setConsumos((cs) => [...cons, ...cs]) // estoque + relatório na hora
+    setPagas((ps) => [{ ...cli }, ...ps]) // caixa "recebido" reflete na hora
+    const total = linhas.reduce((s, r) => s + Number(r.preco_unit) * r.quantidade, 0)
+    setBalcaoAberto(false)
+    registrar('venda_balcao', `Venda de balcão (${money(total)})`, { cliente: cli })
+    mostrarToast('Venda de balcão registrada ✓', { tipo: 'ok' })
+  }
+
+  // CONTA DIVIDIDA: registra o quanto um amigo pagou (por garrafa ou por valor).
+  // A mesa continua aberta mostrando "Falta pagar" até quitar tudo.
+  async function pagarParte(cliente_id, valor, qtd = null) {
+    const v = Number(valor) || 0
+    if (v <= 0) return
+    const { data, error } = await supabase
+      .from('pagamentos_parciais')
+      .insert({ cliente_id, valor: v, qtd })
+      .select()
+      .single()
+    if (error || !data) {
+      erro('⚠️ Ative a conta dividida: rode o SQL "conta-dividida" no Supabase.')
+      return
+    }
+    setParciais((ps) => [data, ...ps])
+    const cli = clientes.find((c) => c.id === cliente_id)
+    registrar(
+      'pagar_parte',
+      `Pagou parte: ${money(v)}${cli ? ' — ' + cli.nome : ''}`,
+      { parcial: data }
+    )
+    mostrarToast(`Recebido ${money(v)} ✓`, { tipo: 'ok' })
+  }
+
   if (!isConfigured) return <Aviso />
   if (carregando) return <div className="centro">Carregando…</div>
 
@@ -477,6 +551,12 @@ export default function App({ distribuidora = null, onSair = null }) {
               {modoMesa ? '+ Mesa' : '+ Nova'}
             </button>
           </div>
+
+          {cervejas.length > 0 && (
+            <button className="btn-balcao" onClick={() => setBalcaoAberto(true)}>
+              ⚡ Venda rápida <span className="bb-sub">— pediu, pagou e levou</span>
+            </button>
+          )}
 
           {clientes.length > 3 && (
             <div className="busca-wrap">
@@ -573,14 +653,24 @@ export default function App({ distribuidora = null, onSair = null }) {
           cervejas={cervejas}
           consumos={consumos.filter((co) => co.cliente_id === clienteAberto.id)}
           resumo={resumo[clienteAberto.id] || { total: 0, qtd: 0 }}
+          parciais={parciais.filter((p) => p.cliente_id === clienteAberto.id)}
           onAdd={adicionarConsumo}
           onRemove={removerConsumo}
+          onPagarParte={pagarParte}
           onFechar={fecharConta}
           onExcluir={excluirCliente}
           onVoltar={() => {
             setAbertoId(null)
             setBusca('')
           }}
+        />
+      )}
+
+      {balcaoAberto && (
+        <VendaBalcao
+          cervejas={cervejas}
+          onVender={venderBalcao}
+          onVoltar={() => setBalcaoAberto(false)}
         />
       )}
 
@@ -684,7 +774,7 @@ function sugerir(texto, lista) {
 
 const sugerirMarcas = (texto) => sugerir(texto, MARCAS_POPULARES)
 
-function Detalhe({ cliente, cervejas, consumos, resumo, onAdd, onRemove, onFechar, onExcluir, onVoltar }) {
+function Detalhe({ cliente, cervejas, consumos, resumo, parciais = [], onAdd, onRemove, onPagarParte, onFechar, onExcluir, onVoltar }) {
   const [qtd, setQtd] = useState(1)
   const [buscaProd, setBuscaProd] = useState('')
   const [mostrarTodos, setMostrarTodos] = useState(false)
@@ -692,6 +782,10 @@ function Detalhe({ cliente, cervejas, consumos, resumo, onAdd, onRemove, onFecha
   const [mostrarResumo, setMostrarResumo] = useState(false)
   const [confirmar, setConfirmar] = useState(null) // produto aguardando confirmação
   const [confPagto, setConfPagto] = useState(false) // confirmação de pagamento ao fechar
+  const [parteAberto, setParteAberto] = useState(false) // modal "pagar parte" (conta dividida)
+  const [modoParte, setModoParte] = useState('garrafa') // 'garrafa' | 'valor'
+  const [selGarrafas, setSelGarrafas] = useState({}) // {beer_nome: qtd escolhida}
+  const [valorParte, setValorParte] = useState('')
 
   const reprDe = (c) => (c.tamanho ? `${c.nome} ${c.tamanho}` : c.nome)
 
@@ -747,6 +841,49 @@ function Detalhe({ cliente, cervejas, consumos, resumo, onAdd, onRemove, onFecha
     }
     return [...map.values()].sort((a, b) => b.qtd - a.qtd)
   }, [consumos])
+
+  // itens da mesa agrupados por produto (pro "pagar por garrafa")
+  const itensMesa = useMemo(() => {
+    const map = new Map()
+    for (const co of consumos) {
+      if (!map.has(co.beer_nome))
+        map.set(co.beer_nome, { nome: co.beer_nome, qtd: 0, preco: Number(co.preco_unit) })
+      const it = map.get(co.beer_nome)
+      it.qtd += co.quantidade
+      it.preco = Number(co.preco_unit)
+    }
+    return [...map.values()]
+  }, [consumos])
+
+  // conta dividida: quanto já pagaram e quanto falta
+  const pago = parciais.reduce((s, p) => s + Number(p.valor || 0), 0)
+  const falta = Math.max(0, resumo.total - pago)
+  const temParcial = pago > 0.009
+  const precoMedio = resumo.qtd > 0 ? resumo.total / resumo.qtd : 0
+  const garrafasFalta = precoMedio > 0 ? Math.round(falta / precoMedio) : 0
+
+  // seleção do "pagar por garrafa"
+  const somaGarrafas = itensMesa.reduce((s, it) => s + (selGarrafas[it.nome] || 0) * it.preco, 0)
+  const qtdGarrafas = Object.values(selGarrafas).reduce((s, n) => s + n, 0)
+  const valorDigitado = Number(String(valorParte).replace(',', '.')) || 0
+
+  function mudarSel(nome, delta, max) {
+    setSelGarrafas((s) => {
+      const novo = Math.min(max, Math.max(0, (s[nome] || 0) + delta))
+      return { ...s, [nome]: novo }
+    })
+  }
+  function fecharParte() {
+    setParteAberto(false)
+    setSelGarrafas({})
+    setValorParte('')
+    setModoParte('garrafa')
+  }
+  function confirmarParte(valor, qtd) {
+    if (!(valor > 0)) return
+    onPagarParte(cliente.id, valor, qtd)
+    fecharParte()
+  }
 
   return (
     <div className="overlay">
@@ -871,21 +1008,42 @@ function Detalhe({ cliente, cervejas, consumos, resumo, onAdd, onRemove, onFecha
         </div>
 
         <footer className="det-rodape">
+          {temParcial && (
+            <div className="parcial-linha">
+              <span className="pl-cel">Total<b>{money(resumo.total)}</b></span>
+              <span className="pl-cel pl-pago">Pago<b>{money(pago)}</b></span>
+              <span className="pl-cel pl-falta">
+                Falta<b>{money(falta)}</b>
+                {falta > 0 && garrafasFalta > 0 && (
+                  <em className="pl-aprox">≈ {garrafasFalta} 🍺</em>
+                )}
+              </span>
+            </div>
+          )}
           <div className="rodape-top">
             <div className="total-grande">
               <span className="tg-itens">{resumo.qtd} produtos consumidos</span>
               <strong>{money(resumo.total)}</strong>
             </div>
-            <button
-              className="btn-resumo"
-              onClick={() => setMostrarResumo(true)}
-              disabled={resumo.qtd === 0}
-            >
-              📋 Resumo
-            </button>
+            <div className="rodape-botoes">
+              <button
+                className="btn-resumo"
+                onClick={() => setMostrarResumo(true)}
+                disabled={resumo.qtd === 0}
+              >
+                📋 Resumo
+              </button>
+              <button
+                className="btn-parte"
+                onClick={() => setParteAberto(true)}
+                disabled={resumo.qtd === 0}
+              >
+                👥 Pagar parte
+              </button>
+            </div>
           </div>
           <button className="btn-pagar" onClick={() => setConfPagto(true)}>
-            ✓ Pagar / Fechar
+            {temParcial ? `✓ Receber o resto · ${money(falta)}` : '✓ Pagar / Fechar'}
           </button>
         </footer>
       </div>
@@ -920,12 +1078,113 @@ function Detalhe({ cliente, cervejas, consumos, resumo, onAdd, onRemove, onFecha
       {confPagto && (
         <div className="pag-overlay" onClick={() => setConfPagto(false)}>
           <div className="pag-box" onClick={(e) => e.stopPropagation()}>
-            <p className="pag-titulo">Confirmar pagamento de {cliente.nome}?</p>
-            <strong className="pag-total">{money(resumo.total)}</strong>
+            <p className="pag-titulo">
+              {temParcial
+                ? `Receber o resto de ${cliente.nome}?`
+                : `Confirmar pagamento de ${cliente.nome}?`}
+            </p>
+            <strong className="pag-total">{money(temParcial ? falta : resumo.total)}</strong>
+            {temParcial && (
+              <span className="pag-sub">
+                Já pago {money(pago)} · Total {money(resumo.total)}
+              </span>
+            )}
             <button className="pag-confirmar" onClick={() => onFechar(cliente.id)}>
               ✓ Confirmar pagamento
             </button>
             <button className="pag-cancelar" onClick={() => setConfPagto(false)}>
+              Cancelar
+            </button>
+          </div>
+        </div>
+      )}
+
+      {parteAberto && (
+        <div className="parte-overlay" onClick={fecharParte}>
+          <div className="parte-box" onClick={(e) => e.stopPropagation()}>
+            <h3 className="parte-tit">👥 Dividir a conta — {cliente.nome}</h3>
+            <div className="parte-falta">
+              Falta pagar <strong>{money(falta)}</strong>
+              {garrafasFalta > 0 && <em> ≈ {garrafasFalta} 🍺</em>}
+            </div>
+
+            <div className="parte-modos">
+              <button
+                className={modoParte === 'garrafa' ? 'pm on' : 'pm'}
+                onClick={() => setModoParte('garrafa')}
+              >
+                🍺 Escolher garrafas
+              </button>
+              <button
+                className={modoParte === 'valor' ? 'pm on' : 'pm'}
+                onClick={() => setModoParte('valor')}
+              >
+                💵 Digitar valor
+              </button>
+            </div>
+
+            {modoParte === 'garrafa' ? (
+              <>
+                <div className="parte-itens">
+                  {itensMesa.length === 0 && (
+                    <p className="vazio">Nada lançado ainda.</p>
+                  )}
+                  {itensMesa.map((it) => {
+                    const sel = selGarrafas[it.nome] || 0
+                    return (
+                      <div key={it.nome} className="pi-linha">
+                        <div className="pi-txt">
+                          <span className="pi-nome">{it.nome}</span>
+                          <span className="pi-preco">{money(it.preco)} · {it.qtd} na mesa</span>
+                        </div>
+                        <div className="pi-step">
+                          <button onClick={() => mudarSel(it.nome, -1, it.qtd)} disabled={sel <= 0}>−</button>
+                          <strong>{sel}</strong>
+                          <button onClick={() => mudarSel(it.nome, +1, it.qtd)} disabled={sel >= it.qtd}>+</button>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+                <button
+                  className="parte-confirmar"
+                  disabled={somaGarrafas <= 0}
+                  onClick={() => confirmarParte(somaGarrafas, qtdGarrafas)}
+                >
+                  ✓ Receber {money(somaGarrafas)}
+                  {qtdGarrafas > 0 && <span className="pc-sub"> ({qtdGarrafas} 🍺)</span>}
+                </button>
+              </>
+            ) : (
+              <>
+                <input
+                  className="parte-input"
+                  inputMode="decimal"
+                  placeholder="Quanto ele vai deixar pago? (R$)"
+                  value={valorParte}
+                  onChange={(e) => setValorParte(e.target.value)}
+                />
+                {falta > 0 && (
+                  <div className="parte-atalhos">
+                    <button onClick={() => setValorParte((falta / 2).toFixed(2))}>
+                      Metade · {money(falta / 2)}
+                    </button>
+                    <button onClick={() => setValorParte(falta.toFixed(2))}>
+                      Tudo · {money(falta)}
+                    </button>
+                  </div>
+                )}
+                <button
+                  className="parte-confirmar"
+                  disabled={!(valorDigitado > 0)}
+                  onClick={() => confirmarParte(valorDigitado, null)}
+                >
+                  ✓ Receber {money(valorDigitado)}
+                </button>
+              </>
+            )}
+
+            <button className="parte-cancelar" onClick={fecharParte}>
               Cancelar
             </button>
           </div>
@@ -964,6 +1223,129 @@ function Detalhe({ cliente, cervejas, consumos, resumo, onAdd, onRemove, onFecha
           </div>
         )
       })()}
+    </div>
+  )
+}
+
+// VENDA RÁPIDA (balcão): monta um carrinho, toca nos produtos e vende de uma vez.
+// Não abre comanda com nome — quem chama (App.venderBalcao) grava como venda fechada.
+function VendaBalcao({ cervejas, onVender, onVoltar }) {
+  const [carrinho, setCarrinho] = useState({}) // {cervejaId: qtd}
+  const [busca, setBusca] = useState('')
+
+  const q = normalizar(busca)
+  const filtrados = q
+    ? cervejas.filter(
+        (c) =>
+          normalizar(c.nome).includes(q) ||
+          normalizar(c.tamanho ? `${c.nome} ${c.tamanho}` : c.nome).includes(q)
+      )
+    : cervejas
+
+  function add(c) {
+    setCarrinho((k) => ({ ...k, [c.id]: (k[c.id] || 0) + 1 }))
+  }
+  function mudar(id, delta) {
+    setCarrinho((k) => {
+      const novo = Math.max(0, (k[id] || 0) + delta)
+      const cp = { ...k }
+      if (novo === 0) delete cp[id]
+      else cp[id] = novo
+      return cp
+    })
+  }
+
+  const itensCarrinho = cervejas
+    .filter((c) => carrinho[c.id])
+    .map((c) => ({ cerveja: c, qtd: carrinho[c.id] }))
+  const total = itensCarrinho.reduce((s, it) => s + Number(it.cerveja.preco) * it.qtd, 0)
+  const totalItens = itensCarrinho.reduce((s, it) => s + it.qtd, 0)
+
+  return (
+    <div className="overlay">
+      <div className="detalhe">
+        <header className="det-topo">
+          <div className="det-topo-row">
+            <button className="voltar" onClick={onVoltar}>
+              ‹ Voltar
+            </button>
+          </div>
+          <h2>⚡ Venda rápida</h2>
+          <span className="balcao-dica">Toque nos produtos e aperte Vender — sem abrir comanda.</span>
+        </header>
+
+        <div className="busca-wrap busca-prod">
+          <input
+            className="campo busca"
+            placeholder="🔎 Procurar produto…"
+            value={busca}
+            onChange={(e) => setBusca(e.target.value)}
+          />
+          {busca && (
+            <button className="busca-x" onClick={() => setBusca('')} aria-label="Limpar busca">
+              ✕
+            </button>
+          )}
+        </div>
+
+        <div className="lista-prod">
+          {filtrados.length === 0 && <p className="vazio">Nenhum produto encontrado.</p>}
+          {filtrados.map((c) => {
+            const cor = corDe(c.nome, c.cor)
+            const n = carrinho[c.id] || 0
+            return (
+              <button
+                key={c.id}
+                className={'prod-card' + (n ? ' destaque' : '')}
+                style={{ background: cor.bg, color: cor.fg }}
+                onClick={() => add(c)}
+              >
+                <span className="pc-nome">
+                  {c.nome}
+                  {n > 0 && <span className="pc-badge">{n}</span>}
+                </span>
+                <span className="pc-info">
+                  {c.tamanho && <span className="pc-tam">{c.tamanho}</span>}
+                  <span className="pc-preco">{money(c.preco)}</span>
+                </span>
+              </button>
+            )
+          })}
+        </div>
+
+        <div className="historico">
+          {itensCarrinho.length === 0 && <p className="vazio">Carrinho vazio.</p>}
+          {itensCarrinho.map((it) => (
+            <div key={it.cerveja.id} className="item">
+              <span className="item-desc">
+                {it.cerveja.tamanho ? `${it.cerveja.nome} ${it.cerveja.tamanho}` : it.cerveja.nome}
+              </span>
+              <div className="pi-step balcao-step">
+                <button onClick={() => mudar(it.cerveja.id, -1)}>−</button>
+                <strong>{it.qtd}</strong>
+                <button onClick={() => mudar(it.cerveja.id, +1)}>+</button>
+              </div>
+              <span className="item-valor">{money(it.cerveja.preco * it.qtd)}</span>
+            </div>
+          ))}
+        </div>
+
+        <footer className="det-rodape">
+          <div className="rodape-top">
+            <div className="total-grande">
+              <span className="tg-itens">{totalItens} item{totalItens === 1 ? '' : 's'}</span>
+              <strong>{money(total)}</strong>
+            </div>
+          </div>
+          <button
+            className="btn-pagar"
+            disabled={itensCarrinho.length === 0}
+            onClick={() => onVender(itensCarrinho)}
+          >
+            ✓ Vender {money(total)}
+          </button>
+        </footer>
+      </div>
     </div>
   )
 }
@@ -2364,23 +2746,45 @@ const PERIODOS = [
   { id: 'hoje', label: 'Hoje' },
   { id: '7d', label: '7 dias' },
   { id: '30d', label: '30 dias' },
+  { id: 'dia', label: '📅 Dia' },
 ]
 
-// começo do período, em ms. "Hoje" é o dia do calendário (meia-noite local);
-// 7d/30d são janelas corridas terminando agora.
-function inicioPeriodo(periodo) {
+// data de hoje no formato 'AAAA-MM-DD' (hora local) — pro <input type="date">
+function hojeISO() {
+  const d = new Date()
+  const p = (n) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
+}
+
+// janela [inicio, fim] em ms. "Hoje" = do começo do dia até agora; 7d/30d = janelas
+// corridas terminando agora; "dia" = um dia específico do calendário (00:00→23:59).
+function janelaPeriodo(periodo, dia) {
   const agora = new Date()
+  if (periodo === 'dia' && dia) {
+    const [a, m, d] = dia.split('-').map(Number)
+    const ini = new Date(a, m - 1, d, 0, 0, 0, 0)
+    const fim = new Date(a, m - 1, d, 23, 59, 59, 999)
+    return { inicio: ini.getTime(), fim: fim.getTime() }
+  }
   if (periodo === 'hoje') {
     const d = new Date(agora)
     d.setHours(0, 0, 0, 0)
-    return d.getTime()
+    return { inicio: d.getTime(), fim: agora.getTime() }
   }
   const dias = periodo === '7d' ? 7 : 30
-  return agora.getTime() - dias * 24 * 60 * 60 * 1000
+  return { inicio: agora.getTime() - dias * 24 * 60 * 60 * 1000, fim: agora.getTime() }
+}
+
+// 'AAAA-MM-DD' → '01/08' pra mostrar bonito no título
+function diaBonito(dia) {
+  if (!dia) return ''
+  const [, m, d] = dia.split('-')
+  return `${d}/${m}`
 }
 
 function Relatorio({ consumos, cervejas = [], pagas = [], abertas = [] }) {
   const [periodo, setPeriodo] = useState('hoje')
+  const [dia, setDia] = useState(hojeISO) // dia escolhido no calendário (modo 'dia')
 
   // total de cada comanda (soma dos consumos dela) — serve pro caixa
   const totalPorCliente = useMemo(() => {
@@ -2390,28 +2794,21 @@ function Relatorio({ consumos, cervejas = [], pagas = [], abertas = [] }) {
     return m
   }, [consumos])
 
-  // caixa: quanto ENTROU no período (comandas pagas, por forma) + o que está aberto AGORA
+  // caixa: quanto ENTROU no período (comandas pagas) + o que está aberto AGORA.
+  // Só o total — o cliente não separa por dinheiro/pix/cartão.
   const caixa = useMemo(() => {
-    const inicio = inicioPeriodo(periodo)
-    const porForma = new Map()
+    const { inicio, fim } = janelaPeriodo(periodo, dia)
     let recebido = 0
     for (const p of pagas) {
-      if (!p.pago_em || new Date(p.pago_em).getTime() < inicio) continue
-      const t = totalPorCliente.get(p.id) || 0
-      recebido += t
-      const f = p.forma_pagamento || 'outro'
-      porForma.set(f, (porForma.get(f) || 0) + t)
+      if (!p.pago_em) continue
+      const t0 = new Date(p.pago_em).getTime()
+      if (t0 < inicio || t0 > fim) continue
+      recebido += totalPorCliente.get(p.id) || 0
     }
     let emAberto = 0
     for (const a of abertas) emAberto += totalPorCliente.get(a.id) || 0
-    // ordena as formas pela ordem oficial, "outro" por último
-    const ordem = FORMAS_PAGAMENTO.map((f) => f.id)
-    const formas = [...porForma.entries()].sort(
-      (a, b) =>
-        (ordem.indexOf(a[0]) + 1 || 99) - (ordem.indexOf(b[0]) + 1 || 99)
-    )
-    return { recebido, formas, emAberto, nAberto: abertas.length }
-  }, [pagas, abertas, totalPorCliente, periodo])
+    return { recebido, emAberto, nAberto: abertas.length }
+  }, [pagas, abertas, totalPorCliente, periodo, dia])
 
   // custo unitário por nome-de-produto (só dos que têm custo cadastrado no Estoque)
   const custoPorNome = useMemo(() => {
@@ -2426,10 +2823,11 @@ function Relatorio({ consumos, cervejas = [], pagas = [], abertas = [] }) {
   }, [cervejas])
 
   const dados = useMemo(() => {
-    const inicio = inicioPeriodo(periodo)
-    const noPeriodo = consumos.filter(
-      (c) => new Date(c.created_at).getTime() >= inicio
-    )
+    const { inicio, fim } = janelaPeriodo(periodo, dia)
+    const noPeriodo = consumos.filter((c) => {
+      const t = new Date(c.created_at).getTime()
+      return t >= inicio && t <= fim
+    })
     let faturamento = 0
     let itens = 0
     let custoTotal = 0 // custo só dos itens que têm custo cadastrado
@@ -2468,7 +2866,7 @@ function Relatorio({ consumos, cervejas = [], pagas = [], abertas = [] }) {
       maxQtd: ranking.reduce((m, p) => Math.max(m, p.qtd), 0),
       vazio: noPeriodo.length === 0,
     }
-  }, [consumos, custoPorNome, periodo])
+  }, [consumos, custoPorNome, periodo, dia])
 
   return (
     <main className="conteudo">
@@ -2484,8 +2882,25 @@ function Relatorio({ consumos, cervejas = [], pagas = [], abertas = [] }) {
         ))}
       </div>
 
+      {periodo === 'dia' && (
+        <div className="rel-dia">
+          <span className="rel-dia-lbl">🧾 Fechamento do dia</span>
+          <input
+            className="rel-dia-input"
+            type="date"
+            value={dia}
+            max={hojeISO()}
+            onChange={(e) => setDia(e.target.value)}
+          />
+        </div>
+      )}
+
       {dados.vazio ? (
-        <p className="vazio">Nenhuma venda nesse período ainda.</p>
+        <p className="vazio">
+          {periodo === 'dia'
+            ? `Nenhuma venda no dia ${diaBonito(dia)}.`
+            : 'Nenhuma venda nesse período ainda.'}
+        </p>
       ) : (
         <>
           <div className="rel-kpis">
@@ -2524,26 +2939,20 @@ function Relatorio({ consumos, cervejas = [], pagas = [], abertas = [] }) {
           <h3 className="sec">💳 Caixa</h3>
           <div className="rel-caixa">
             <div className="caixa-card caixa-recebido">
-              <span className="kpi-lbl">Recebido no período</span>
-              <strong className="kpi-val">{money(caixa.recebido)}</strong>
-              {caixa.formas.length > 0 && (
-                <div className="caixa-formas">
-                  {caixa.formas.map(([f, v]) => (
-                    <div key={f} className="cf-linha">
-                      <span>{rotuloForma(f)}</span>
-                      <b>{money(v)}</b>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-            <div className="caixa-card caixa-aberto">
-              <span className="kpi-lbl">Em aberto agora</span>
-              <strong className="kpi-val">{money(caixa.emAberto)}</strong>
-              <span className="caixa-sub">
-                {caixa.nAberto} comanda{caixa.nAberto === 1 ? '' : 's'} sem pagar
+              <span className="kpi-lbl">
+                {periodo === 'dia' ? `Recebido em ${diaBonito(dia)}` : 'Recebido no período'}
               </span>
+              <strong className="kpi-val">{money(caixa.recebido)}</strong>
             </div>
+            {periodo !== 'dia' && (
+              <div className="caixa-card caixa-aberto">
+                <span className="kpi-lbl">Em aberto agora</span>
+                <strong className="kpi-val">{money(caixa.emAberto)}</strong>
+                <span className="caixa-sub">
+                  {caixa.nAberto} comanda{caixa.nAberto === 1 ? '' : 's'} sem pagar
+                </span>
+              </div>
+            )}
           </div>
 
           <h3 className="sec">Mais vendidos</h3>
