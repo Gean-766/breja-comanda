@@ -1232,10 +1232,14 @@ function Detalhe({ cliente, cervejas, consumos, resumo, parciais = [], onAdd, on
             )}
           </div>
 
-          {/* 2º — quem já pagou parte (o "Falta" já está no número grande acima) */}
+          {/* 2º — resumo do que já entrou (o "Falta" está no número grande acima) */}
           {temParcial && (
             <button className="pago-pill" onClick={() => setVerPagos(true)}>
-              ✓ Já pago {money(pago)} <em>· ver movimento ›</em>
+              <span className="pp-txt">
+                Total <b className="pp-total">{money(resumo.total)}</b> · já pago{' '}
+                <b className="pp-pago">{money(pago)}</b> ✓
+              </span>
+              <em className="pp-ver">ver movimento ›</em>
             </button>
           )}
 
