@@ -2038,11 +2038,32 @@ const HIST_INFO = {
   fechar_cliente: { icone: '✅' },
   lancar_consumo: { icone: '+', cls: 'hi-add' },
   remover_consumo: { icone: '−', cls: 'hi-rem' },
+  pagar_parte: { icone: '💰' },
+  renomear_cliente: { icone: '✏️' },
+  venda_balcao: { icone: '⚡' },
   add_produto: { icone: '🆕' },
   remover_produto: { icone: '❌' },
   editar_produto: { icone: '✏️' },
   mudar_preco: { icone: '💲' },
 }
+
+// a qual pasta FIXA do histórico cada tipo pertence (o lojista não cria pastas
+// aqui — são só 3, pra organizar a leitura).
+const PASTA_HIST = {
+  abrir_cliente: 'comanda',
+  fechar_cliente: 'comanda',
+  excluir_cliente: 'comanda',
+  lancar_consumo: 'comanda',
+  remover_consumo: 'comanda',
+  pagar_parte: 'comanda',
+  renomear_cliente: 'comanda',
+  venda_balcao: 'balcao',
+  add_produto: 'estoque',
+  remover_produto: 'estoque',
+  editar_produto: 'estoque',
+  mudar_preco: 'estoque',
+}
+const pastaDeHist = (h) => PASTA_HIST[h.tipo] || 'comanda'
 
 // descobre a qual comanda (pessoa) uma movimentação pertence.
 // id null = movimentação de produto/catálogo (sem pessoa).
@@ -2097,7 +2118,8 @@ function LinhaHist({ h, onReverter }) {
 }
 
 function AbaHistorico({ historico, onReverter }) {
-  // blocos começam FECHADOS; guardamos quais foram abertos pelo toque
+  const [pastaAberta, setPastaAberta] = useState(null) // null | 'comanda' | 'balcao' | 'estoque'
+  // blocos de comanda começam FECHADOS; guardamos quais foram abertos pelo toque
   const [abertos, setAbertos] = useState(() => new Set())
   const toggle = (id) =>
     setAbertos((s) => {
@@ -2107,26 +2129,33 @@ function AbaHistorico({ historico, onReverter }) {
       return n
     })
 
-  // agrupa por comanda (pessoa). historico já vem do mais recente p/ o mais antigo,
-  // então a ordem dos blocos segue a última atividade de cada comanda.
-  const { blocos, catalogo } = useMemo(() => {
+  // separa o histórico nas 3 pastas fixas
+  const grupos = useMemo(() => {
+    const g = { comanda: [], balcao: [], estoque: [] }
+    for (const h of historico) g[pastaDeHist(h)].push(h)
+    return g
+  }, [historico])
+
+  // dentro de Comandas: agrupa por comanda (pessoa/mesa), como antes
+  const blocos = useMemo(() => {
     const map = new Map()
-    const cat = []
-    for (const h of historico) {
+    for (const h of grupos.comanda) {
       const r = refCliente(h)
-      if (!r.id) {
-        cat.push(h)
-        continue
-      }
-      if (!map.has(r.id)) map.set(r.id, { id: r.id, nome: '', itens: [] })
-      const b = map.get(r.id)
+      const key = r.id || 'h_' + h.id
+      if (!map.has(key)) map.set(key, { id: key, nome: '', itens: [] })
+      const b = map.get(key)
       if (!b.nome && r.nome) b.nome = r.nome
       b.itens.push(h)
     }
-    return { blocos: [...map.values()], catalogo: cat }
-  }, [historico])
+    return [...map.values()]
+  }, [grupos.comanda])
 
-  // ícone/estado do bloco pela ação "mais final" que aconteceu na comanda
+  const PASTAS = [
+    { id: 'comanda', icone: '🧾', nome: 'Comandas', n: grupos.comanda.length },
+    { id: 'balcao', icone: '⚡', nome: 'Vendas rápidas', n: grupos.balcao.length },
+    { id: 'estoque', icone: '📦', nome: 'Estoque / Produtos', n: grupos.estoque.length },
+  ]
+  const plural = (n) => (n === 1 ? 'movimentação' : 'movimentações')
   const estadoDe = (itens) => {
     if (itens.some((h) => h.tipo === 'excluir_cliente'))
       return { icone: '🗑️', cls: 'h-excluir' }
@@ -2134,71 +2163,94 @@ function AbaHistorico({ historico, onReverter }) {
       return { icone: '✅', cls: 'h-fechar' }
     return { icone: '🟢', cls: 'h-abrir' }
   }
-  const plural = (n) => (n === 1 ? 'movimentação' : 'movimentações')
 
-  return (
-    <main className="conteudo">
-      <h3 className="sec">Histórico — últimas 24h</h3>
-      <p className="hist-aviso">
-        Agrupado por comanda. Toque numa pessoa pra ver/ocultar o que rolou nela.
-        Fica 24h aqui (e ~30 dias guardado no servidor). Dá pra desfazer.
-      </p>
-
-      {historico.length === 0 && (
-        <p className="vazio">Nenhuma movimentação nas últimas 24 horas.</p>
-      )}
-
-      {blocos.map((b) => {
-        const est = estadoDe(b.itens)
-        const aberto = abertos.has(b.id)
-        return (
-          <div key={b.id} className={'hist-bloco ' + est.cls + (aberto ? ' on' : '')}>
-            <button className="hist-bloco-cab" onClick={() => toggle(b.id)}>
-              <span className="hbc-icone">{est.icone}</span>
-              <div className="hbc-texto">
-                <span className="hbc-nome">{b.nome || 'Comanda'}</span>
-                <span className="hbc-meta">
-                  {b.itens.length} {plural(b.itens.length)} · 🕐 {hora(b.itens[0].created_at)}
-                </span>
-              </div>
-              <span className="hbc-acao">{aberto ? '▾ fechar' : 'abrir ›'}</span>
-            </button>
-            {aberto && (
-              <div className="hist-bloco-itens">
-                {b.itens.map((h) => (
-                  <LinhaHist key={h.id} h={h} onReverter={onReverter} />
-                ))}
-              </div>
-            )}
-          </div>
-        )
-      })}
-
-      {catalogo.length > 0 &&
-        (() => {
-          const aberto = abertos.has('__cat__')
-          return (
-            <div className={'hist-bloco h-prod' + (aberto ? ' on' : '')}>
-              <button className="hist-bloco-cab" onClick={() => toggle('__cat__')}>
-                <span className="hbc-icone">📦</span>
-                <div className="hbc-texto">
-                  <span className="hbc-nome">Produtos / Catálogo</span>
-                  <span className="hbc-meta">
-                    {catalogo.length} {plural(catalogo.length)}
+  // ---------- LISTA DE PASTAS ----------
+  if (!pastaAberta) {
+    return (
+      <main className="conteudo">
+        <h3 className="sec">Histórico — últimas 24h</h3>
+        <p className="hist-aviso">
+          Organizado por pasta. Toque numa pasta pra ver o que rolou. Fica 24h aqui
+          (e ~30 dias guardado no servidor). Dá pra desfazer.
+        </p>
+        {historico.length === 0 ? (
+          <p className="vazio">Nenhuma movimentação nas últimas 24 horas.</p>
+        ) : (
+          <div className="est-folders">
+            {PASTAS.map((p) => (
+              <button
+                key={p.id}
+                className="est-folder"
+                onClick={() => setPastaAberta(p.id)}
+              >
+                <span className="est-folder-ic">{p.icone}</span>
+                <div className="est-folder-txt">
+                  <span className="est-folder-nome">{p.nome}</span>
+                  <span className="est-folder-sub">
+                    {p.n} {plural(p.n)}
                   </span>
                 </div>
-                <span className="hbc-acao">{aberto ? '▾ fechar' : 'abrir ›'}</span>
+                <span className="est-folder-seta">›</span>
               </button>
-              {aberto && (
-                <div className="hist-bloco-itens">
-                  {catalogo.map((h) => (
-                    <LinhaHist key={h.id} h={h} onReverter={onReverter} />
-                  ))}
-                </div>
-              )}
-            </div>
-          )
-        })()}
+            ))}
+          </div>
+        )}
+      </main>
+    )
+  }
+
+  // ---------- DENTRO DE UMA PASTA ----------
+  const pasta = PASTAS.find((p) => p.id === pastaAberta)
+  return (
+    <main className="conteudo">
+      <div className="est-nav">
+        <button className="est-voltar" onClick={() => setPastaAberta(null)}>
+          ‹ Voltar
+        </button>
+        <span className="est-nav-tit">
+          {pasta.icone} {pasta.nome}
+        </span>
+      </div>
+
+      {pastaAberta === 'comanda' ? (
+        blocos.length === 0 ? (
+          <p className="vazio">Nenhuma movimentação de comanda.</p>
+        ) : (
+          blocos.map((b) => {
+            const est = estadoDe(b.itens)
+            const aberto = abertos.has(b.id)
+            return (
+              <div key={b.id} className={'hist-bloco ' + est.cls + (aberto ? ' on' : '')}>
+                <button className="hist-bloco-cab" onClick={() => toggle(b.id)}>
+                  <span className="hbc-icone">{est.icone}</span>
+                  <div className="hbc-texto">
+                    <span className="hbc-nome">{b.nome || 'Comanda'}</span>
+                    <span className="hbc-meta">
+                      {b.itens.length} {plural(b.itens.length)} · 🕐 {hora(b.itens[0].created_at)}
+                    </span>
+                  </div>
+                  <span className="hbc-acao">{aberto ? '▾ fechar' : 'abrir ›'}</span>
+                </button>
+                {aberto && (
+                  <div className="hist-bloco-itens">
+                    {b.itens.map((h) => (
+                      <LinhaHist key={h.id} h={h} onReverter={onReverter} />
+                    ))}
+                  </div>
+                )}
+              </div>
+            )
+          })
+        )
+      ) : grupos[pastaAberta].length === 0 ? (
+        <p className="vazio">Nada por aqui ainda.</p>
+      ) : (
+        <div className="hist-lista">
+          {grupos[pastaAberta].map((h) => (
+            <LinhaHist key={h.id} h={h} onReverter={onReverter} />
+          ))}
+        </div>
+      )}
     </main>
   )
 }
