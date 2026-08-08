@@ -811,6 +811,7 @@ function Detalhe({ cliente, cervejas, consumos, resumo, parciais = [], onAdd, on
   const [modoParte, setModoParte] = useState('garrafa') // 'garrafa' | 'valor'
   const [selGarrafas, setSelGarrafas] = useState({}) // {beer_nome: qtd escolhida}
   const [valorParte, setValorParte] = useState('')
+  const [pessoas, setPessoas] = useState(0) // dividir a conta entre N pessoas (modo valor)
 
   const reprDe = (c) => (c.tamanho ? `${c.nome} ${c.tamanho}` : c.nome)
 
@@ -971,15 +972,29 @@ function Detalhe({ cliente, cervejas, consumos, resumo, parciais = [], onAdd, on
       mudarSel(it.nome, +1)
     }
   }
+  // divide o que falta entre N pessoas (ou joga o valor cheio, no botão "Tudo")
+  function escolherPessoas(n, valorFixo = null) {
+    if (valorFixo != null) {
+      setPessoas(0)
+      setValorParte(valorFixo.toFixed(2))
+      return
+    }
+    setPessoas(n)
+    setValorParte((falta / n).toFixed(2))
+  }
   function fecharParte() {
     setParteAberto(false)
     setSelGarrafas({})
     setValorParte('')
     setModoParte('garrafa')
+    setPessoas(0)
     setExcesso(null)
   }
   function confirmarParte(valor, qtd, itens = null) {
     if (!(valor > 0)) return
+    // arredondamento da divisão pode passar 1 centavo: se está só um tiquinho acima
+    // do que falta, trata como o valor exato (quita limpo, sem alarme falso).
+    if (valor > falta && valor - falta <= 0.05) valor = falta
     // trava de limite: passou do que ainda falta? pede confirmação antes de cobrar a mais
     if (valor > falta + 0.001) {
       setExcesso({ valor, qtd, itens })
@@ -1301,19 +1316,40 @@ function Detalhe({ cliente, cervejas, consumos, resumo, parciais = [], onAdd, on
               </>
             ) : (
               <>
+                {falta > 0 && (
+                  <div className="parte-dividir">
+                    <span className="pd-lbl">Dividir entre quantas pessoas?</span>
+                    <div className="pd-botoes">
+                      {[2, 3, 4, 5, 6].map((n) => (
+                        <button
+                          key={n}
+                          className={'pd-btn' + (pessoas === n ? ' on' : '')}
+                          onClick={() => escolherPessoas(n)}
+                        >
+                          {n}
+                        </button>
+                      ))}
+                    </div>
+                    {pessoas >= 2 && (
+                      <span className="pd-cada">
+                        Cada um paga <b>{money(falta / pessoas)}</b>
+                      </span>
+                    )}
+                  </div>
+                )}
                 <input
                   className="parte-input"
                   inputMode="decimal"
-                  placeholder="Quanto ele vai deixar pago? (R$)"
+                  placeholder="Ou digite um valor (R$)"
                   value={valorParte}
-                  onChange={(e) => setValorParte(e.target.value)}
+                  onChange={(e) => {
+                    setPessoas(0)
+                    setValorParte(e.target.value)
+                  }}
                 />
                 {falta > 0 && (
                   <div className="parte-atalhos">
-                    <button onClick={() => setValorParte((falta / 2).toFixed(2))}>
-                      Metade · {money(falta / 2)}
-                    </button>
-                    <button onClick={() => setValorParte(falta.toFixed(2))}>
+                    <button onClick={() => escolherPessoas(0, falta)}>
                       Tudo · {money(falta)}
                     </button>
                   </div>
