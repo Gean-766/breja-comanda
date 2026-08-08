@@ -2974,3 +2974,65 @@ input[type='number'] {
 .pr-falta b {
   color: var(--danger);
 }
+
+/* ----- Alerta: pagamento passou do que falta (trava de limite) ----- */
+.excesso-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  background: rgba(0, 0, 0, 0.66);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 22px;
+}
+.excesso-box {
+  width: 100%;
+  max-width: 380px;
+  background: var(--card);
+  border: 2px solid var(--danger);
+  border-radius: 18px;
+  padding: 22px 20px 18px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  text-align: center;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6);
+}
+.excesso-ic {
+  font-size: 40px;
+  line-height: 1;
+}
+.excesso-tit {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 900;
+  color: var(--danger);
+}
+.excesso-txt {
+  margin: 0 0 4px;
+  font-size: 16px;
+  line-height: 1.45;
+  color: var(--text);
+}
+.excesso-ok {
+  width: 100%;
+  padding: 15px;
+  border: none;
+  border-radius: 14px;
+  background: var(--danger);
+  color: #fff;
+  font-size: 16px;
+  font-weight: 900;
+}
+.excesso-voltar {
+  width: 100%;
+  padding: 12px;
+  border: none;
+  border-radius: 12px;
+  background: var(--card2);
+  color: var(--text);
+  font-size: 15px;
+  font-weight: 800;
+}

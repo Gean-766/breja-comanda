@@ -784,6 +784,7 @@ function Detalhe({ cliente, cervejas, consumos, resumo, parciais = [], onAdd, on
   const [confPagto, setConfPagto] = useState(false) // confirmação de pagamento ao fechar
   const [parteAberto, setParteAberto] = useState(false) // modal "pagar parte" (conta dividida)
   const [verPagos, setVerPagos] = useState(false) // modal com o movimento dos pagamentos parciais
+  const [excesso, setExcesso] = useState(null) // pagamento que passou do que falta, aguardando confirmação
   const [modoParte, setModoParte] = useState('garrafa') // 'garrafa' | 'valor'
   const [selGarrafas, setSelGarrafas] = useState({}) // {beer_nome: qtd escolhida}
   const [valorParte, setValorParte] = useState('')
@@ -879,10 +880,21 @@ function Detalhe({ cliente, cervejas, consumos, resumo, parciais = [], onAdd, on
     setSelGarrafas({})
     setValorParte('')
     setModoParte('garrafa')
+    setExcesso(null)
   }
   function confirmarParte(valor, qtd) {
     if (!(valor > 0)) return
+    // trava de limite: passou do que ainda falta? pede confirmação antes de cobrar a mais
+    if (valor > falta + 0.001) {
+      setExcesso({ valor, qtd })
+      return
+    }
     onPagarParte(cliente.id, valor, qtd)
+    fecharParte()
+  }
+  function confirmarExcesso() {
+    if (!excesso) return
+    onPagarParte(cliente.id, excesso.valor, excesso.qtd)
     fecharParte()
   }
 
@@ -1189,6 +1201,27 @@ function Detalhe({ cliente, cervejas, consumos, resumo, parciais = [], onAdd, on
 
             <button className="parte-cancelar" onClick={fecharParte}>
               Cancelar
+            </button>
+          </div>
+        </div>
+      )}
+
+      {excesso && (
+        <div className="excesso-overlay" onClick={() => setExcesso(null)}>
+          <div className="excesso-box" onClick={(e) => e.stopPropagation()}>
+            <span className="excesso-ic">⚠️</span>
+            <p className="excesso-tit">Passou do que falta!</p>
+            <p className="excesso-txt">
+              Falta só <b>{money(falta)}</b> e você está cobrando <b>{money(excesso.valor)}</b>
+              {excesso.valor - falta > 0.001 && (
+                <> — <b>{money(excesso.valor - falta)}</b> a mais</>
+              )}.
+            </p>
+            <button className="excesso-ok" onClick={confirmarExcesso}>
+              Cobrar {money(excesso.valor)} mesmo assim
+            </button>
+            <button className="excesso-voltar" onClick={() => setExcesso(null)}>
+              Voltar e ajustar
             </button>
           </div>
         </div>
