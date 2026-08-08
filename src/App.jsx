@@ -1626,6 +1626,7 @@ function Detalhe({ cliente, cervejas, consumos, resumo, parciais = [], onAdd, on
 function VendaBalcao({ cervejas, onVender, onVoltar }) {
   const [carrinho, setCarrinho] = useState({}) // {cervejaId: qtd}
   const [busca, setBusca] = useState('')
+  const [confVenda, setConfVenda] = useState(false) // confirmação antes de fechar a venda
 
   const q = normalizar(busca)
   const filtrados = q
@@ -1734,12 +1735,40 @@ function VendaBalcao({ cervejas, onVender, onVoltar }) {
           <button
             className="btn-pagar"
             disabled={itensCarrinho.length === 0}
-            onClick={() => onVender(itensCarrinho)}
+            onClick={() => setConfVenda(true)}
           >
             ✓ Vender {money(total)}
           </button>
         </footer>
       </div>
+
+      {confVenda && (
+        <div className="pag-overlay" onClick={() => setConfVenda(false)}>
+          <div className="pag-box" onClick={(e) => e.stopPropagation()}>
+            <p className="pag-titulo">Confirmar venda de balcão?</p>
+            <strong className="pag-total">{money(total)}</strong>
+            <div className="venda-itens">
+              {itensCarrinho.map((it) => (
+                <div key={it.cerveja.id} className="venda-item">
+                  <span>
+                    {it.qtd}×{' '}
+                    {it.cerveja.tamanho
+                      ? `${it.cerveja.nome} ${it.cerveja.tamanho}`
+                      : it.cerveja.nome}
+                  </span>
+                  <b>{money(it.cerveja.preco * it.qtd)}</b>
+                </div>
+              ))}
+            </div>
+            <button className="pag-confirmar" onClick={() => onVender(itensCarrinho)}>
+              ✓ Confirmar venda
+            </button>
+            <button className="pag-cancelar" onClick={() => setConfVenda(false)}>
+              Cancelar
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

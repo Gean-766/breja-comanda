@@ -2585,6 +2585,27 @@ input[type='number'] {
   font-size: 14px;
   font-weight: 600;
 }
+/* lista de itens na confirmação da venda de balcão */
+.venda-itens {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 40vh;
+  overflow-y: auto;
+}
+.venda-item {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 12px;
+  background: var(--bg);
+  border-radius: 10px;
+  font-size: 16px;
+  font-weight: 600;
+}
+.venda-item b {
+  font-weight: 800;
+}
 /* contador em cima do card de produto (quantas já foram pro carrinho) */
 .pc-badge {
   display: inline-flex;
