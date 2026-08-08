@@ -428,6 +428,28 @@ export default function App({ distribuidora = null, onSair = null }) {
     }
   }
 
+  // Ao sair de uma comanda (‹ Voltar): faxina pedida pelo lojista.
+  //  - vazia (aberta e nada pedido) → some.
+  //  - totalmente paga (dividida e quitada) → fecha (sai da lista de abertas).
+  //  - senão, continua aberta normalmente.
+  async function sairDaComanda() {
+    const id = abertoId
+    setAbertoId(null)
+    setBusca('')
+    if (!id) return
+    const cons = consumos.filter((c) => c.cliente_id === id)
+    const total = resumo[id]?.total || 0
+    const pagoP = parciais
+      .filter((p) => p.cliente_id === id)
+      .reduce((s, p) => s + Number(p.valor || 0), 0)
+    if (cons.length === 0 && pagoP <= 0.009) {
+      await supabase.from('clientes').delete().eq('id', id)
+      setClientes((cs) => cs.filter((c) => c.id !== id))
+    } else if (total > 0 && total - pagoP <= 0.009) {
+      fecharConta(id)
+    }
+  }
+
   // VENDA DE BALCÃO (venda rápida): "pediu, pagou e levou". Não abre comanda com
   // nome — cria uma comanda já FECHADA na hora com os itens. Assim o estoque baixa
   // e o relatório conta, exatamente como qualquer venda, sem trabalho extra.
@@ -659,10 +681,7 @@ export default function App({ distribuidora = null, onSair = null }) {
           onPagarParte={pagarParte}
           onFechar={fecharConta}
           onExcluir={excluirCliente}
-          onVoltar={() => {
-            setAbertoId(null)
-            setBusca('')
-          }}
+          onVoltar={sairDaComanda}
         />
       )}
 
@@ -785,6 +804,7 @@ function Detalhe({ cliente, cervejas, consumos, resumo, parciais = [], onAdd, on
   const [parteAberto, setParteAberto] = useState(false) // modal "pagar parte" (conta dividida)
   const [verPagos, setVerPagos] = useState(false) // modal com o movimento dos pagamentos parciais
   const [excesso, setExcesso] = useState(null) // pagamento que passou do que falta, aguardando confirmação
+  const [confGarrafa, setConfGarrafa] = useState(null) // confirmação ao passar do que tem na mesa
   const [modoParte, setModoParte] = useState('garrafa') // 'garrafa' | 'valor'
   const [selGarrafas, setSelGarrafas] = useState({}) // {beer_nome: qtd escolhida}
   const [valorParte, setValorParte] = useState('')
@@ -862,8 +882,42 @@ function Detalhe({ cliente, cervejas, consumos, resumo, parciais = [], onAdd, on
   const falta = Math.max(0, resumo.total - pago)
   const temParcial = pago > 0.009
   const quitado = temParcial && resumo.total > 0 && falta <= 0.009 // pago por completo via parciais
-  const precoMedio = resumo.qtd > 0 ? resumo.total / resumo.qtd : 0
-  const garrafasFalta = precoMedio > 0 ? Math.round(falta / precoMedio) : 0
+
+  // garrafas pagas x faltando: expande em unidades (por horário) e vai marcando como
+  // paga enquanto o total pago cobre. Assim o "≈ N 🍺" BATE com o vermelho do movimento.
+  const garrafas = useMemo(() => {
+    const uni = []
+    for (const co of consumos)
+      for (let k = 0; k < co.quantidade; k++)
+        uni.push({ nome: co.beer_nome, preco: Number(co.preco_unit), t: co.created_at })
+    uni.sort((a, b) => new Date(a.t) - new Date(b.t))
+    let acc = 0
+    for (const u of uni) {
+      if (acc + u.preco <= pago + 0.001) {
+        u.pago = true
+        acc += u.preco
+      } else u.pago = false
+    }
+    const agrupar = (lista) => {
+      const m = new Map()
+      for (const u of lista) {
+        if (!m.has(u.nome)) m.set(u.nome, { nome: u.nome, qtd: 0, total: 0 })
+        const g = m.get(u.nome)
+        g.qtd += 1
+        g.total += u.preco
+      }
+      return [...m.values()].sort((a, b) => b.qtd - a.qtd)
+    }
+    const pagas = uni.filter((u) => u.pago)
+    const pend = uni.filter((u) => !u.pago)
+    return {
+      nPagas: pagas.length,
+      nFalta: pend.length,
+      pagasGrp: agrupar(pagas),
+      pendentesGrp: agrupar(pend),
+    }
+  }, [consumos, pago])
+  const garrafasFalta = garrafas.nFalta
 
   // seleção do "pagar por garrafa"
   const somaGarrafas = itensMesa.reduce((s, it) => s + (selGarrafas[it.nome] || 0) * it.preco, 0)
@@ -875,6 +929,15 @@ function Detalhe({ cliente, cervejas, consumos, resumo, parciais = [], onAdd, on
       const novo = Math.max(0, (s[nome] || 0) + delta)
       return { ...s, [nome]: novo }
     })
+  }
+  // tocar no "+": se for passar do que tem na mesa, pede confirmação antes
+  function maisUma(it) {
+    const sel = selGarrafas[it.nome] || 0
+    if (sel + 1 > it.qtd) {
+      setConfGarrafa({ nome: it.nome, qtd: it.qtd, alvo: sel + 1 })
+    } else {
+      mudarSel(it.nome, +1)
+    }
   }
   function fecharParte() {
     setParteAberto(false)
@@ -891,12 +954,15 @@ function Detalhe({ cliente, cervejas, consumos, resumo, parciais = [], onAdd, on
       return
     }
     onPagarParte(cliente.id, valor, qtd)
+    const zerou = resumo.total - (pago + valor) <= 0.009
     fecharParte()
+    if (zerou) setConfPagto(true) // quitou → já oferece encerrar a comanda
   }
   function confirmarExcesso() {
     if (!excesso) return
     onPagarParte(cliente.id, excesso.valor, excesso.qtd)
     fecharParte()
+    setConfPagto(true) // recebeu o resto (ou mais) → oferece encerrar
   }
 
   return (
@@ -1024,7 +1090,7 @@ function Detalhe({ cliente, cervejas, consumos, resumo, parciais = [], onAdd, on
         <footer className="det-rodape">
           {/* 1º — total consumido */}
           <div className="total-grande total-topo">
-            <span className="tg-itens">{resumo.qtd} produtos consumidos</span>
+            <span className="tg-itens">{resumo.qtd} produtos</span>
             <strong>{money(resumo.total)}</strong>
           </div>
 
@@ -1181,7 +1247,7 @@ function Detalhe({ cliente, cervejas, consumos, resumo, parciais = [], onAdd, on
                         <div className="pi-step">
                           <button onClick={() => mudarSel(it.nome, -1)} disabled={sel <= 0}>−</button>
                           <strong>{sel}</strong>
-                          <button onClick={() => mudarSel(it.nome, +1)}>+</button>
+                          <button onClick={() => maisUma(it)}>+</button>
                         </div>
                       </div>
                     )
@@ -1253,24 +1319,35 @@ function Detalhe({ cliente, cervejas, consumos, resumo, parciais = [], onAdd, on
         </div>
       )}
 
+      {confGarrafa && (
+        <div className="excesso-overlay" onClick={() => setConfGarrafa(null)}>
+          <div className="excesso-box" onClick={(e) => e.stopPropagation()}>
+            <span className="excesso-ic">⚠️</span>
+            <p className="excesso-tit">Passou do que tem na mesa!</p>
+            <p className="excesso-txt">
+              Só tem <b>{confGarrafa.qtd}× {confGarrafa.nome}</b> na mesa e você está marcando{' '}
+              <b>{confGarrafa.alvo}</b>. Confirma?
+            </p>
+            <button
+              className="excesso-ok"
+              onClick={() => {
+                mudarSel(confGarrafa.nome, +1)
+                setConfGarrafa(null)
+              }}
+            >
+              Sim, marcar {confGarrafa.alvo}
+            </button>
+            <button className="excesso-voltar" onClick={() => setConfGarrafa(null)}>
+              Voltar
+            </button>
+          </div>
+        </div>
+      )}
+
       {verPagos && (() => {
-        // linha do tempo: pedidos (+) e pagamentos (−) juntos, por horário
-        const eventos = [
-          ...consumos.map((co) => ({
-            id: 'c' + co.id,
-            t: co.created_at,
-            tipo: 'consumo',
-            texto: `${co.quantidade}× ${co.beer_nome}`,
-            valor: Number(co.preco_unit) * co.quantidade,
-          })),
-          ...parciais.map((p) => ({
-            id: 'p' + p.id,
-            t: p.created_at,
-            tipo: 'pagamento',
-            texto: p.qtd ? `Pagou ${p.qtd} 🍺` : 'Pagou',
-            valor: Number(p.valor),
-          })),
-        ].sort((a, b) => new Date(a.t) - new Date(b.t))
+        const pagamentos = [...parciais].sort(
+          (a, b) => new Date(a.created_at) - new Date(b.created_at)
+        )
         return (
           <div className="pagos-overlay" onClick={() => setVerPagos(false)}>
             <div className="pagos-box" onClick={(e) => e.stopPropagation()}>
@@ -1280,25 +1357,58 @@ function Detalhe({ cliente, cervejas, consumos, resumo, parciais = [], onAdd, on
                 </button>
               </div>
               <h3 className="pagos-tit">🧾 Movimento — {cliente.nome}</h3>
+
               <div className="pagos-lista">
-                {eventos.length === 0 && <p className="vazio">Nada lançado ainda.</p>}
-                {eventos.map((e) => (
-                  <div key={e.id} className={'pagos-item mov-' + e.tipo}>
-                    <span className="pagos-hora">🕐 {hora(e.t)}</span>
-                    <span className="pagos-desc">
-                      {e.tipo === 'pagamento' ? '💰 ' : '🍺 '}
-                      {e.texto}
-                    </span>
-                    <span className={'pagos-valor' + (e.tipo === 'pagamento' ? ' mov-pag' : '')}>
-                      {e.tipo === 'pagamento' ? '− ' : ''}
-                      {money(e.valor)}
-                    </span>
+                {garrafas.nPagas === 0 && garrafas.nFalta === 0 && (
+                  <p className="vazio">Nada lançado ainda.</p>
+                )}
+
+                {/* garrafas pagas — verde */}
+                {garrafas.pagasGrp.length > 0 && (
+                  <div className="mov-bloco mov-bloco-pago">
+                    <span className="mov-bloco-tit">✓ Pagas · {garrafas.nPagas} 🍺</span>
+                    {garrafas.pagasGrp.map((g) => (
+                      <div key={'pg' + g.nome} className="mov-linha">
+                        <span className="mov-q">{g.qtd}×</span>
+                        <span className="mov-n">{g.nome}</span>
+                        <span className="mov-v">{money(g.total)}</span>
+                      </div>
+                    ))}
                   </div>
-                ))}
+                )}
+
+                {/* garrafas faltando — vermelho */}
+                {garrafas.pendentesGrp.length > 0 && (
+                  <div className="mov-bloco mov-bloco-falta">
+                    <span className="mov-bloco-tit">✗ Faltando · {garrafas.nFalta} 🍺</span>
+                    {garrafas.pendentesGrp.map((g) => (
+                      <div key={'pd' + g.nome} className="mov-linha">
+                        <span className="mov-q">{g.qtd}×</span>
+                        <span className="mov-n">{g.nome}</span>
+                        <span className="mov-v">{money(g.total)}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* quando pagou (horários) */}
+                {pagamentos.length > 0 && (
+                  <div className="mov-pagtos">
+                    <span className="mov-pagtos-tit">💰 Pagamentos</span>
+                    {pagamentos.map((p) => (
+                      <div key={p.id} className="mov-pagto">
+                        <span className="pagos-hora">🕐 {hora(p.created_at)}</span>
+                        <span className="mov-pagto-desc">{p.qtd ? `${p.qtd} 🍺` : 'valor'}</span>
+                        <span className="mov-pagto-v">{money(p.valor)}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
+
               <div className="pagos-resumo">
                 <div className="pr-linha">
-                  <span>Total consumido</span>
+                  <span>Total</span>
                   <b>{money(resumo.total)}</b>
                 </div>
                 <div className="pr-linha pr-pago">
@@ -1306,7 +1416,7 @@ function Detalhe({ cliente, cervejas, consumos, resumo, parciais = [], onAdd, on
                   <b>{money(pago)}</b>
                 </div>
                 <div className="pr-linha pr-falta">
-                  <span>Falta pagar</span>
+                  <span>Falta</span>
                   <b>{money(falta)}</b>
                 </div>
               </div>

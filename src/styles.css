@@ -3077,3 +3077,96 @@ input[type='number'] {
   color: var(--danger);
   font-weight: 800;
 }
+
+/* placeholder do "Digitar valor" — cinza fraco pra não parecer preenchido */
+.parte-input::placeholder {
+  color: var(--muted);
+  opacity: 1;
+  font-weight: 600;
+}
+
+/* ----- Movimento: blocos verde (pago) / vermelho (falta) ----- */
+.mov-bloco {
+  border-radius: 12px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.mov-bloco-pago {
+  background: rgba(47, 174, 91, 0.12);
+  border: 1px solid rgba(47, 174, 91, 0.4);
+}
+.mov-bloco-falta {
+  background: rgba(224, 83, 61, 0.12);
+  border: 1px solid rgba(224, 83, 61, 0.4);
+}
+.mov-bloco-tit {
+  font-size: 13px;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+.mov-bloco-pago .mov-bloco-tit {
+  color: var(--accent2);
+}
+.mov-bloco-falta .mov-bloco-tit {
+  color: var(--danger);
+}
+.mov-linha {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 16px;
+}
+.mov-q {
+  font-weight: 900;
+  min-width: 34px;
+}
+.mov-n {
+  flex: 1;
+  font-weight: 600;
+}
+.mov-v {
+  font-weight: 800;
+}
+.mov-bloco-pago .mov-q,
+.mov-bloco-pago .mov-v {
+  color: var(--accent2);
+}
+.mov-bloco-falta .mov-q,
+.mov-bloco-falta .mov-v {
+  color: var(--danger);
+}
+/* pagamentos com horário */
+.mov-pagtos {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 4px 2px 0;
+}
+.mov-pagtos-tit {
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+.mov-pagto {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  background: var(--bg);
+  border-radius: 10px;
+}
+.mov-pagto-desc {
+  flex: 1;
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 600;
+}
+.mov-pagto-v {
+  font-weight: 800;
+  color: var(--accent2);
+}
