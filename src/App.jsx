@@ -1627,6 +1627,7 @@ function VendaBalcao({ cervejas, onVender, onVoltar }) {
   const [carrinho, setCarrinho] = useState({}) // {cervejaId: qtd}
   const [busca, setBusca] = useState('')
   const [confVenda, setConfVenda] = useState(false) // confirmação antes de fechar a venda
+  const [dividirN, setDividirN] = useState(1) // dividir a venda entre N pessoas (caixinha)
 
   const q = normalizar(busca)
   const filtrados = q
@@ -1726,11 +1727,26 @@ function VendaBalcao({ cervejas, onVender, onVoltar }) {
         </div>
 
         <footer className="det-rodape">
-          <div className="rodape-top">
-            <div className="total-grande">
+          <div className="rodape-linha1">
+            <div className="total-grande total-topo">
               <span className="tg-itens">{totalItens} item{totalItens === 1 ? '' : 's'}</span>
               <strong>{money(total)}</strong>
             </div>
+            {total > 0 && (
+              <div className="mesa-dividir">
+                <span className="md-lbl">Dividir entre quantas pessoas?</span>
+                <div className="md-ctrl">
+                  <div className="md-step">
+                    <button onClick={() => setDividirN((n) => Math.max(1, n - 1))} disabled={dividirN <= 1}>
+                      −
+                    </button>
+                    <strong>{dividirN}</strong>
+                    <button onClick={() => setDividirN((n) => n + 1)}>+</button>
+                  </div>
+                  <span className="md-eq">= {money(total / dividirN)} cada</span>
+                </div>
+              </div>
+            )}
           </div>
           <button
             className="btn-pagar"
