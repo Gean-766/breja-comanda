@@ -861,6 +861,7 @@ function Detalhe({ cliente, cervejas, consumos, resumo, parciais = [], onAdd, on
   const pago = parciais.reduce((s, p) => s + Number(p.valor || 0), 0)
   const falta = Math.max(0, resumo.total - pago)
   const temParcial = pago > 0.009
+  const quitado = temParcial && resumo.total > 0 && falta <= 0.009 // pago por completo via parciais
   const precoMedio = resumo.qtd > 0 ? resumo.total / resumo.qtd : 0
   const garrafasFalta = precoMedio > 0 ? Math.round(falta / precoMedio) : 0
 
@@ -869,9 +870,9 @@ function Detalhe({ cliente, cervejas, consumos, resumo, parciais = [], onAdd, on
   const qtdGarrafas = Object.values(selGarrafas).reduce((s, n) => s + n, 0)
   const valorDigitado = Number(String(valorParte).replace(',', '.')) || 0
 
-  function mudarSel(nome, delta, max) {
+  function mudarSel(nome, delta) {
     setSelGarrafas((s) => {
-      const novo = Math.min(max, Math.max(0, (s[nome] || 0) + delta))
+      const novo = Math.max(0, (s[nome] || 0) + delta)
       return { ...s, [nome]: novo }
     })
   }
@@ -1021,6 +1022,13 @@ function Detalhe({ cliente, cervejas, consumos, resumo, parciais = [], onAdd, on
         </div>
 
         <footer className="det-rodape">
+          {/* 1º — total consumido */}
+          <div className="total-grande total-topo">
+            <span className="tg-itens">{resumo.qtd} produtos consumidos</span>
+            <strong>{money(resumo.total)}</strong>
+          </div>
+
+          {/* 2º — pago / falta (só quando há pagamento parcial) */}
           {temParcial && (
             <div className="parcial-linha">
               <button className="pl-cel pl-pago pl-btn" onClick={() => setVerPagos(true)}>
@@ -1035,30 +1043,32 @@ function Detalhe({ cliente, cervejas, consumos, resumo, parciais = [], onAdd, on
               </button>
             </div>
           )}
-          <div className="rodape-top">
-            <div className="total-grande">
-              <span className="tg-itens">{resumo.qtd} produtos consumidos</span>
-              <strong>{money(resumo.total)}</strong>
-            </div>
-            <div className="rodape-botoes">
-              <button
-                className="btn-resumo"
-                onClick={() => setMostrarResumo(true)}
-                disabled={resumo.qtd === 0}
-              >
-                📋 Resumo
-              </button>
-              <button
-                className="btn-parte"
-                onClick={() => setParteAberto(true)}
-                disabled={resumo.qtd === 0}
-              >
-                👥 Pagar parte
-              </button>
-            </div>
+
+          {/* 3º — botões secundários */}
+          <div className="rodape-botoes">
+            <button
+              className="btn-resumo"
+              onClick={() => setMostrarResumo(true)}
+              disabled={resumo.qtd === 0}
+            >
+              📋 Resumo
+            </button>
+            <button
+              className="btn-parte"
+              onClick={() => setParteAberto(true)}
+              disabled={resumo.qtd === 0 || quitado}
+            >
+              👥 Pagar parte
+            </button>
           </div>
+
+          {/* 4º — ação principal (fechar / receber o resto / encerrar) */}
           <button className="btn-pagar" onClick={() => setConfPagto(true)}>
-            {temParcial ? `✓ Receber o resto · ${money(falta)}` : '✓ Pagar / Fechar'}
+            {quitado
+              ? '✓ Encerrar comanda (tudo pago)'
+              : temParcial
+                ? `✓ Receber o resto · ${money(falta)}`
+                : '✓ Pagar / Fechar'}
           </button>
         </footer>
       </div>
@@ -1066,6 +1076,9 @@ function Detalhe({ cliente, cervejas, consumos, resumo, parciais = [], onAdd, on
       {mostrarResumo && (
         <div className="resumo-overlay" onClick={() => setMostrarResumo(false)}>
           <div className="resumo-box" onClick={(e) => e.stopPropagation()}>
+            <button className="modal-x" onClick={() => setMostrarResumo(false)} aria-label="Fechar">
+              ✕
+            </button>
             <h3 className="resumo-titulo">📋 Resumo — {cliente.nome}</h3>
             <div className="resumo-lista">
               {resumoItens.map((it) => (
@@ -1094,18 +1107,24 @@ function Detalhe({ cliente, cervejas, consumos, resumo, parciais = [], onAdd, on
         <div className="pag-overlay" onClick={() => setConfPagto(false)}>
           <div className="pag-box" onClick={(e) => e.stopPropagation()}>
             <p className="pag-titulo">
-              {temParcial
-                ? `Receber o resto de ${cliente.nome}?`
-                : `Confirmar pagamento de ${cliente.nome}?`}
+              {quitado
+                ? `Encerrar a comanda de ${cliente.nome}?`
+                : temParcial
+                  ? `Receber o resto de ${cliente.nome}?`
+                  : `Confirmar pagamento de ${cliente.nome}?`}
             </p>
-            <strong className="pag-total">{money(temParcial ? falta : resumo.total)}</strong>
-            {temParcial && (
+            <strong className="pag-total">
+              {quitado ? money(resumo.total) : money(temParcial ? falta : resumo.total)}
+            </strong>
+            {quitado ? (
+              <span className="pag-sub">Tudo pago ✓ — a comanda vai fechar</span>
+            ) : temParcial ? (
               <span className="pag-sub">
                 Já pago {money(pago)} · Total {money(resumo.total)}
               </span>
-            )}
+            ) : null}
             <button className="pag-confirmar" onClick={() => onFechar(cliente.id)}>
-              ✓ Confirmar pagamento
+              {quitado ? '✓ Encerrar comanda' : '✓ Confirmar pagamento'}
             </button>
             <button className="pag-cancelar" onClick={() => setConfPagto(false)}>
               Cancelar
@@ -1117,6 +1136,9 @@ function Detalhe({ cliente, cervejas, consumos, resumo, parciais = [], onAdd, on
       {parteAberto && (
         <div className="parte-overlay" onClick={fecharParte}>
           <div className="parte-box" onClick={(e) => e.stopPropagation()}>
+            <button className="modal-x" onClick={fecharParte} aria-label="Fechar">
+              ✕
+            </button>
             <h3 className="parte-tit">👥 Dividir a conta — {cliente.nome}</h3>
             <div className="parte-falta">
               Falta pagar <strong>{money(falta)}</strong>
@@ -1146,16 +1168,20 @@ function Detalhe({ cliente, cervejas, consumos, resumo, parciais = [], onAdd, on
                   )}
                   {itensMesa.map((it) => {
                     const sel = selGarrafas[it.nome] || 0
+                    const passou = sel > it.qtd
                     return (
-                      <div key={it.nome} className="pi-linha">
+                      <div key={it.nome} className={'pi-linha' + (passou ? ' pi-passou' : '')}>
                         <div className="pi-txt">
                           <span className="pi-nome">{it.nome}</span>
-                          <span className="pi-preco">{money(it.preco)} · {it.qtd} na mesa</span>
+                          <span className="pi-preco">
+                            {money(it.preco)} · {it.qtd} na mesa
+                            {passou && <em className="pi-alerta"> ⚠️ passou de {it.qtd}</em>}
+                          </span>
                         </div>
                         <div className="pi-step">
-                          <button onClick={() => mudarSel(it.nome, -1, it.qtd)} disabled={sel <= 0}>−</button>
+                          <button onClick={() => mudarSel(it.nome, -1)} disabled={sel <= 0}>−</button>
                           <strong>{sel}</strong>
-                          <button onClick={() => mudarSel(it.nome, +1, it.qtd)} disabled={sel >= it.qtd}>+</button>
+                          <button onClick={() => mudarSel(it.nome, +1)}>+</button>
                         </div>
                       </div>
                     )

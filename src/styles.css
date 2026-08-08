@@ -673,6 +673,7 @@ button:active {
 }
 .resumo-titulo {
   margin: 0 0 12px;
+  padding-right: 44px;
   font-size: 20px;
   color: var(--accent);
 }
@@ -2575,6 +2576,11 @@ input[type='number'] {
 .rodape-botoes {
   display: flex;
   gap: 8px;
+  margin-bottom: 12px;
+}
+/* total no topo do rodapé (linha própria, largura cheia) */
+.total-topo {
+  margin-bottom: 12px;
 }
 .btn-parte {
   padding: 12px 14px;
@@ -2663,6 +2669,7 @@ input[type='number'] {
 }
 .parte-tit {
   margin: 0;
+  padding: 0 40px;
   text-align: center;
   font-size: 18px;
   font-weight: 800;
@@ -3034,5 +3041,39 @@ input[type='number'] {
   background: var(--card2);
   color: var(--text);
   font-size: 15px;
+  font-weight: 800;
+}
+
+/* ----- X de fechar (janelas Resumo e Pagar parte) ----- */
+.resumo-box,
+.parte-box {
+  position: relative;
+}
+.modal-x {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  width: 36px;
+  height: 36px;
+  border: none;
+  border-radius: 10px;
+  background: var(--card2);
+  color: var(--text);
+  font-size: 18px;
+  font-weight: 800;
+  line-height: 1;
+  z-index: 2;
+}
+
+/* ----- Aviso quando escolhe mais garrafas do que tem na mesa ----- */
+.pi-passou {
+  border: 1px solid rgba(224, 83, 61, 0.6);
+}
+.pi-passou .pi-step strong {
+  color: var(--danger);
+}
+.pi-alerta {
+  font-style: normal;
+  color: var(--danger);
   font-weight: 800;
 }
