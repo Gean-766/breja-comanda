@@ -951,10 +951,14 @@ function Detalhe({ cliente, cervejas, consumos, resumo, parciais = [], onAdd, on
   const garrafasFalta = garrafas.nFalta
 
   // seleção do "pagar por garrafa" — a lista mostra SÓ o que ainda falta pagar
-  const somaGarrafas = garrafas.pendentesGrp.reduce(
+  const somaGarrafasBruta = garrafas.pendentesGrp.reduce(
     (s, it) => s + (selGarrafas[it.nome] || 0) * it.preco,
     0
   )
+  // nunca cobra mais do que falta: se a última garrafa já foi paga em parte (por
+  // valor), puxa só o que resta dela — mas dá baixa na garrafa mesmo assim.
+  const somaGarrafas = Math.min(somaGarrafasBruta, falta)
+  const garrafaResto = somaGarrafasBruta > falta + 0.01 // capou no que falta
   const qtdGarrafas = Object.values(selGarrafas).reduce((s, n) => s + n, 0)
   const valorDigitado = Number(String(valorParte).replace(',', '.')) || 0
 
@@ -1323,7 +1327,9 @@ function Detalhe({ cliente, cervejas, consumos, resumo, parciais = [], onAdd, on
                   }}
                 >
                   ✓ Receber {money(somaGarrafas)}
-                  {qtdGarrafas > 0 && <span className="pc-sub"> ({qtdGarrafas} 🍺)</span>}
+                  {qtdGarrafas > 0 && (
+                    <span className="pc-sub"> ({qtdGarrafas} 🍺{garrafaResto ? ' · resto' : ''})</span>
+                  )}
                 </button>
               </>
             ) : (
