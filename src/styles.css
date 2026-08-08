@@ -2613,6 +2613,25 @@ input[type='number'] {
   gap: 8px;
   margin-bottom: 12px;
 }
+/* linha discreta "já pago · ver movimento" (o Falta fica no número grande) */
+.pago-pill {
+  width: 100%;
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  border: 1px solid rgba(47, 174, 91, 0.4);
+  border-radius: 10px;
+  background: rgba(47, 174, 91, 0.1);
+  color: var(--accent2);
+  font-size: 15px;
+  font-weight: 800;
+  text-align: center;
+}
+.pago-pill em {
+  font-style: normal;
+  color: var(--muted);
+  font-weight: 700;
+  font-size: 13px;
+}
 .pl-cel {
   flex: 1;
   display: flex;

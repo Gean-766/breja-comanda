@@ -1134,8 +1134,14 @@ function Detalhe({ cliente, cervejas, consumos, resumo, parciais = [], onAdd, on
           {/* 1ª linha — total à esquerda + calculadora "dividir" à direita */}
           <div className="rodape-linha1">
             <div className="total-grande total-topo">
-              <span className="tg-itens">{resumo.qtd} produtos</span>
-              <strong>{money(resumo.total)}</strong>
+              <span className="tg-itens">
+                {quitado
+                  ? 'Tudo pago 🎉'
+                  : temParcial
+                    ? `Falta pagar${garrafasFalta > 0 ? ` · ≈ ${garrafasFalta} 🍺` : ''}`
+                    : `${resumo.qtd} produtos`}
+              </span>
+              <strong>{money(temParcial && !quitado ? falta : resumo.total)}</strong>
             </div>
             {falta > 0 && (
               <div className="mesa-dividir">
@@ -1154,20 +1160,11 @@ function Detalhe({ cliente, cervejas, consumos, resumo, parciais = [], onAdd, on
             )}
           </div>
 
-          {/* 2º — pago / falta (só quando há pagamento parcial) */}
+          {/* 2º — quem já pagou parte (o "Falta" já está no número grande acima) */}
           {temParcial && (
-            <div className="parcial-linha">
-              <button className="pl-cel pl-pago pl-btn" onClick={() => setVerPagos(true)}>
-                Pago<b>{money(pago)}</b>
-                <em className="pl-ver">ver ›</em>
-              </button>
-              <button className="pl-cel pl-falta pl-btn" onClick={() => setVerPagos(true)}>
-                Falta<b>{money(falta)}</b>
-                <em className="pl-aprox">
-                  {falta > 0 && garrafasFalta > 0 ? `≈ ${garrafasFalta} 🍺 · ` : ''}ver ›
-                </em>
-              </button>
-            </div>
+            <button className="pago-pill" onClick={() => setVerPagos(true)}>
+              ✓ Já pago {money(pago)} <em>· ver movimento ›</em>
+            </button>
           )}
 
           {/* 3º — botões secundários */}
