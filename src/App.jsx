@@ -812,6 +812,7 @@ function Detalhe({ cliente, cervejas, consumos, resumo, parciais = [], onAdd, on
   const [selGarrafas, setSelGarrafas] = useState({}) // {beer_nome: qtd escolhida}
   const [valorParte, setValorParte] = useState('')
   const [pessoas, setPessoas] = useState(0) // dividir a conta entre N pessoas (modo valor)
+  const [dividirN, setDividirN] = useState(2) // calculadora "dividir" na tela da mesa
 
   const reprDe = (c) => (c.tamanho ? `${c.nome} ${c.tamanho}` : c.nome)
 
@@ -972,13 +973,8 @@ function Detalhe({ cliente, cervejas, consumos, resumo, parciais = [], onAdd, on
       mudarSel(it.nome, +1)
     }
   }
-  // divide o que falta entre N pessoas (ou joga o valor cheio, no botão "Tudo")
-  function escolherPessoas(n, valorFixo = null) {
-    if (valorFixo != null) {
-      setPessoas(0)
-      setValorParte(valorFixo.toFixed(2))
-      return
-    }
+  // divide o que falta entre N pessoas e preenche o valor de cada um
+  function escolherPessoas(n) {
     setPessoas(n)
     setValorParte((falta / n).toFixed(2))
   }
@@ -1141,6 +1137,23 @@ function Detalhe({ cliente, cervejas, consumos, resumo, parciais = [], onAdd, on
             <strong>{money(resumo.total)}</strong>
           </div>
 
+          {/* calculadora rápida: dividir o que falta entre N pessoas */}
+          {falta > 0 && (
+            <div className="mesa-dividir">
+              <span className="md-lbl">Dividir entre quantas pessoas?</span>
+              <div className="md-ctrl">
+                <div className="md-step">
+                  <button onClick={() => setDividirN((n) => Math.max(1, n - 1))} disabled={dividirN <= 1}>
+                    −
+                  </button>
+                  <strong>{dividirN}</strong>
+                  <button onClick={() => setDividirN((n) => n + 1)}>+</button>
+                </div>
+                <span className="md-eq">= {money(falta / dividirN)} cada</span>
+              </div>
+            </div>
+          )}
+
           {/* 2º — pago / falta (só quando há pagamento parcial) */}
           {temParcial && (
             <div className="parcial-linha">
@@ -1267,7 +1280,10 @@ function Detalhe({ cliente, cervejas, consumos, resumo, parciais = [], onAdd, on
               </button>
               <button
                 className={modoParte === 'valor' ? 'pm on' : 'pm'}
-                onClick={() => setModoParte('valor')}
+                onClick={() => {
+                  setModoParte('valor')
+                  if (falta > 0) escolherPessoas(2)
+                }}
               >
                 💵 Digitar valor
               </button>
@@ -1319,22 +1335,21 @@ function Detalhe({ cliente, cervejas, consumos, resumo, parciais = [], onAdd, on
                 {falta > 0 && (
                   <div className="parte-dividir">
                     <span className="pd-lbl">Dividir entre quantas pessoas?</span>
-                    <div className="pd-botoes">
-                      {[2, 3, 4, 5, 6].map((n) => (
+                    <div className="pd-ctrl">
+                      <div className="pi-step">
                         <button
-                          key={n}
-                          className={'pd-btn' + (pessoas === n ? ' on' : '')}
-                          onClick={() => escolherPessoas(n)}
+                          onClick={() => escolherPessoas(Math.max(1, (pessoas || 2) - 1))}
+                          disabled={(pessoas || 2) <= 1}
                         >
-                          {n}
+                          −
                         </button>
-                      ))}
-                    </div>
-                    {pessoas >= 2 && (
+                        <strong>{pessoas || 2}</strong>
+                        <button onClick={() => escolherPessoas((pessoas || 2) + 1)}>+</button>
+                      </div>
                       <span className="pd-cada">
-                        Cada um paga <b>{money(falta / pessoas)}</b>
+                        {money(falta / (pessoas || 2))} <em>cada</em>
                       </span>
-                    )}
+                    </div>
                   </div>
                 )}
                 <input
@@ -1347,13 +1362,6 @@ function Detalhe({ cliente, cervejas, consumos, resumo, parciais = [], onAdd, on
                     setValorParte(e.target.value)
                   }}
                 />
-                {falta > 0 && (
-                  <div className="parte-atalhos">
-                    <button onClick={() => escolherPessoas(0, falta)}>
-                      Tudo · {money(falta)}
-                    </button>
-                  </div>
-                )}
                 <button
                   className="parte-confirmar"
                   disabled={!(valorDigitado > 0)}
