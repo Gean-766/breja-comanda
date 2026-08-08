@@ -1011,17 +1011,16 @@ function Detalhe({ cliente, cervejas, consumos, resumo, parciais = [], onAdd, on
         <footer className="det-rodape">
           {temParcial && (
             <div className="parcial-linha">
-              <span className="pl-cel">Total<b>{money(resumo.total)}</b></span>
               <button className="pl-cel pl-pago pl-btn" onClick={() => setVerPagos(true)}>
                 Pago<b>{money(pago)}</b>
-                <em className="pl-ver">toque p/ ver ›</em>
+                <em className="pl-ver">ver ›</em>
               </button>
-              <span className="pl-cel pl-falta">
+              <button className="pl-cel pl-falta pl-btn" onClick={() => setVerPagos(true)}>
                 Falta<b>{money(falta)}</b>
-                {falta > 0 && garrafasFalta > 0 && (
-                  <em className="pl-aprox">≈ {garrafasFalta} 🍺</em>
-                )}
-              </span>
+                <em className="pl-aprox">
+                  {falta > 0 && garrafasFalta > 0 ? `≈ ${garrafasFalta} 🍺 · ` : ''}ver ›
+                </em>
+              </button>
             </div>
           )}
           <div className="rodape-top">
@@ -1196,9 +1195,23 @@ function Detalhe({ cliente, cervejas, consumos, resumo, parciais = [], onAdd, on
       )}
 
       {verPagos && (() => {
-        const lista = [...parciais].sort(
-          (a, b) => new Date(a.created_at) - new Date(b.created_at)
-        )
+        // linha do tempo: pedidos (+) e pagamentos (−) juntos, por horário
+        const eventos = [
+          ...consumos.map((co) => ({
+            id: 'c' + co.id,
+            t: co.created_at,
+            tipo: 'consumo',
+            texto: `${co.quantidade}× ${co.beer_nome}`,
+            valor: Number(co.preco_unit) * co.quantidade,
+          })),
+          ...parciais.map((p) => ({
+            id: 'p' + p.id,
+            t: p.created_at,
+            tipo: 'pagamento',
+            texto: p.qtd ? `Pagou ${p.qtd} 🍺` : 'Pagou',
+            valor: Number(p.valor),
+          })),
+        ].sort((a, b) => new Date(a.t) - new Date(b.t))
         return (
           <div className="pagos-overlay" onClick={() => setVerPagos(false)}>
             <div className="pagos-box" onClick={(e) => e.stopPropagation()}>
@@ -1207,28 +1220,37 @@ function Detalhe({ cliente, cervejas, consumos, resumo, parciais = [], onAdd, on
                   ‹ Voltar
                 </button>
               </div>
-              <h3 className="pagos-tit">💰 Quem já pagou — {cliente.nome}</h3>
+              <h3 className="pagos-tit">🧾 Movimento — {cliente.nome}</h3>
               <div className="pagos-lista">
-                {lista.length === 0 && <p className="vazio">Nenhum pagamento ainda.</p>}
-                {lista.map((p, i) => (
-                  <div key={p.id} className="pagos-item">
-                    <span className="pagos-hora">🕐 {hora(p.created_at)}</span>
+                {eventos.length === 0 && <p className="vazio">Nada lançado ainda.</p>}
+                {eventos.map((e) => (
+                  <div key={e.id} className={'pagos-item mov-' + e.tipo}>
+                    <span className="pagos-hora">🕐 {hora(e.t)}</span>
                     <span className="pagos-desc">
-                      {i + 1}º pagamento{p.qtd ? ` · ${p.qtd} 🍺` : ''}
+                      {e.tipo === 'pagamento' ? '💰 ' : '🍺 '}
+                      {e.texto}
                     </span>
-                    <span className="pagos-valor">{money(p.valor)}</span>
+                    <span className={'pagos-valor' + (e.tipo === 'pagamento' ? ' mov-pag' : '')}>
+                      {e.tipo === 'pagamento' ? '− ' : ''}
+                      {money(e.valor)}
+                    </span>
                   </div>
                 ))}
               </div>
-              <div className="pagos-total">
-                <span>Total pago</span>
-                <strong>{money(pago)}</strong>
-              </div>
-              {falta > 0 && (
-                <div className="pagos-falta">
-                  Ainda falta <strong>{money(falta)}</strong>
+              <div className="pagos-resumo">
+                <div className="pr-linha">
+                  <span>Total consumido</span>
+                  <b>{money(resumo.total)}</b>
                 </div>
-              )}
+                <div className="pr-linha pr-pago">
+                  <span>Já pago</span>
+                  <b>{money(pago)}</b>
+                </div>
+                <div className="pr-linha pr-falta">
+                  <span>Falta pagar</span>
+                  <b>{money(falta)}</b>
+                </div>
+              </div>
               <button className="pagos-voltar" onClick={() => setVerPagos(false)}>
                 Voltar
               </button>
