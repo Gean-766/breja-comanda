@@ -5,6 +5,24 @@ const money = (n) => 'R$ ' + Number(n || 0).toFixed(2).replace('.', ',')
 const hora = (ts) =>
   new Date(ts).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
 
+// Cadeado de conexão: dá pra falar com o servidor (Supabase) AGORA? Faz um HEAD
+// levíssimo em `cervejas` com prazo. Timeout ou erro de rede = caiu; qualquer
+// resposta (mesmo erro de permissão) = servidor no ar. Rejeição = caiu.
+async function pingConexao() {
+  if (!isConfigured) return true
+  try {
+    const consulta = supabase.from('cervejas').select('id', { head: true }).limit(1)
+    const prazo = new Promise((r) => setTimeout(() => r({ _timeout: true }), 4500))
+    const res = await Promise.race([consulta, prazo])
+    if (res && res._timeout) return false
+    const msg = res && res.error ? res.error.message || '' : ''
+    if (/fetch|network|timeout|failed|load failed/i.test(msg)) return false
+    return true
+  } catch (_) {
+    return false
+  }
+}
+
 // cores fixas das marcas mais conhecidas (pelo nome)
 const CORES_CERVEJA = [
   { match: 'brahma', bg: '#c81f28', fg: '#ffffff' },
@@ -101,6 +119,8 @@ export default function App({ distribuidora = null, onSair = null }) {
   const [carregando, setCarregando] = useState(true)
   const [toast, setToast] = useState(null)
   const toastTimer = useRef()
+  const [conexaoRuim, setConexaoRuim] = useState(false) // cadeado: trava quando a internet cai
+  const travadoRef = useRef(false)
 
   function mostrarToast(msg, opts = {}) {
     clearTimeout(toastTimer.current)
@@ -213,6 +233,65 @@ export default function App({ distribuidora = null, onSair = null }) {
       document.removeEventListener('visibilitychange', aoVoltar)
       window.removeEventListener('focus', aoVoltar)
       supabase.removeChannel(canal)
+    }
+  }, [])
+
+  // mantém a ref em dia pra o cadeado ler o estado sem re-disparar o efeito
+  useEffect(() => {
+    travadoRef.current = conexaoRuim
+  }, [conexaoRuim])
+
+  // CADEADO DE CONEXÃO: enquanto o celular não estiver falando com o servidor,
+  // trava a tela (ninguém cobra em cima de comanda desatualizada). Ao voltar,
+  // recarrega tudo e destrava. É por celular — cada um checa a própria conexão.
+  useEffect(() => {
+    if (!isConfigured) return
+    let vivo = true
+    let falhas = 0
+    let travarTimer = null
+    const trava = () => {
+      if (travarTimer || travadoRef.current) return
+      // folga: só trava depois de ~4,5s de queda confirmada (não pisca em engasgo)
+      travarTimer = setTimeout(() => {
+        travarTimer = null
+        if (vivo) setConexaoRuim(true)
+      }, 4500)
+    }
+    const libera = () => {
+      if (travarTimer) {
+        clearTimeout(travarTimer)
+        travarTimer = null
+      }
+      if (travadoRef.current && vivo) carregar() // estava travado → põe em dia antes de liberar
+      if (vivo) setConexaoRuim(false)
+    }
+    async function checar() {
+      if (!vivo) return
+      if (!navigator.onLine) {
+        trava()
+        return
+      }
+      const ok = await pingConexao()
+      if (!vivo) return
+      if (ok) {
+        falhas = 0
+        libera()
+      } else {
+        falhas += 1
+        trava()
+      }
+    }
+    checar()
+    const iv = setInterval(checar, 5000)
+    const onNet = () => checar()
+    window.addEventListener('online', onNet)
+    window.addEventListener('offline', onNet)
+    return () => {
+      vivo = false
+      clearInterval(iv)
+      if (travarTimer) clearTimeout(travarTimer)
+      window.removeEventListener('online', onNet)
+      window.removeEventListener('offline', onNet)
     }
   }, [])
 
@@ -731,6 +810,21 @@ export default function App({ distribuidora = null, onSair = null }) {
               {toast.acao.label}
             </button>
           )}
+        </div>
+      )}
+
+      {conexaoRuim && (
+        <div className="conexao-lock">
+          <div className="conexao-box">
+            <span className="conexao-ic">🔒</span>
+            <h2 className="conexao-tit">Sem conexão</h2>
+            <p className="conexao-txt">
+              O app travou por segurança até a internet voltar — assim ninguém cobra
+              em cima de uma comanda desatualizada.
+            </p>
+            <div className="conexao-spin" />
+            <span className="conexao-status">Aguardando reconectar…</span>
+          </div>
         </div>
       )}
     </div>

@@ -3549,3 +3549,65 @@ input[type='number'] {
   color: var(--danger);
   font-size: 17px;
 }
+
+/* ===== Cadeado de conexão (trava tudo quando a internet cai) ===== */
+.conexao-lock {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  background: rgba(8, 8, 14, 0.93);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  -webkit-backdrop-filter: blur(2px);
+  backdrop-filter: blur(2px);
+}
+.conexao-box {
+  width: 100%;
+  max-width: 360px;
+  background: var(--card);
+  border: 1px solid var(--card2);
+  border-radius: 20px;
+  padding: 28px 22px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  text-align: center;
+  box-shadow: 0 16px 50px rgba(0, 0, 0, 0.6);
+}
+.conexao-ic {
+  font-size: 46px;
+  line-height: 1;
+}
+.conexao-tit {
+  margin: 0;
+  font-size: 24px;
+  color: var(--accent);
+}
+.conexao-txt {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.5;
+  color: var(--text);
+}
+.conexao-spin {
+  width: 30px;
+  height: 30px;
+  margin-top: 6px;
+  border: 3px solid var(--card2);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: conexao-gira 0.9s linear infinite;
+}
+@keyframes conexao-gira {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.conexao-status {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--muted);
+}
