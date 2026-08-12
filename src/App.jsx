@@ -112,6 +112,7 @@ export default function App({ distribuidora = null, onSair = null }) {
   const [entradas, setEntradas] = useState([]) // entradas de estoque (módulo Estoque)
   const [pagas, setPagas] = useState([]) // comandas já pagas nos últimos 30d (módulo Relatório)
   const [parciais, setParciais] = useState([]) // pagamentos parciais das comandas abertas (conta dividida)
+  const [perdas, setPerdas] = useState([]) // perdas: quebra/vencimento/estrago (módulo Estoque)
   const [busca, setBusca] = useState('')
   const [novoNome, setNovoNome] = useState('')
   const [abertoId, setAbertoId] = useState(null) // cliente aberto na tela de detalhe
@@ -158,6 +159,13 @@ export default function App({ distribuidora = null, onSair = null }) {
       const qe = meu(supabase.from('estoque_entradas').select('*'))
       const re = await qe.order('created_at', { ascending: false })
       setEntradas(re.data || [])
+
+      // Perdas (quebra/vencimento): à parte também, pra degradar sozinho se a
+      // tabela ainda não existir no banco (até rodar o SQL perdas.sql).
+      const rperdas = await meu(supabase.from('perdas').select('*'))
+        .order('created_at', { ascending: false })
+        .limit(500)
+      setPerdas(rperdas.error ? [] : rperdas.data || [])
     }
 
     // Conta dividida: pagamentos parciais das comandas ainda abertas. Fica à
@@ -216,6 +224,7 @@ export default function App({ distribuidora = null, onSair = null }) {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'historico' }, recarregar)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'estoque_entradas' }, recarregar)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'pagamentos_parciais' }, recarregar)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'perdas' }, recarregar)
       .subscribe()
 
     // rede de segurança: se o tempo real cair (celular parado/bloqueado),
@@ -747,6 +756,7 @@ export default function App({ distribuidora = null, onSair = null }) {
             cervejas={cervejas}
             pagas={pagas}
             abertas={clientes}
+            perdas={perdas}
           />
         ) : aba === 'estoque' ? (
           <AbaEstoque
@@ -755,6 +765,8 @@ export default function App({ distribuidora = null, onSair = null }) {
             entradas={entradas}
             setEntradas={setEntradas}
             consumos={consumos}
+            perdas={perdas}
+            setPerdas={setPerdas}
             onErro={erro}
             onLog={registrar}
           />
@@ -2590,9 +2602,13 @@ function iconePasta(label) {
   return known ? known.icone : '🏷️'
 }
 
-function AbaEstoque({ cervejas, setCervejas, entradas, setEntradas, consumos, onErro, onLog }) {
+function AbaEstoque({ cervejas, setCervejas, entradas, setEntradas, consumos, perdas = [], setPerdas, onErro, onLog }) {
   const [abertoId, setAbertoId] = useState(null)
-  const [vista, setVista] = useState('estoque') // 'estoque' (visão geral) | 'cadastro'
+  const [vista, setVista] = useState('estoque') // 'estoque' (visão geral) | 'cadastro' | 'perdas'
+  const [perdendo, setPerdendo] = useState(null) // produto sendo lançado como perda (abre modal)
+  const [perdaQtd, setPerdaQtd] = useState(1)
+  const [perdaMotivo, setPerdaMotivo] = useState('')
+  const [buscaPerda, setBuscaPerda] = useState('')
   // formulário de novo produto — novoPasta guarda EM QUAL pasta estou adicionando
   // (null = form fechado). Cadastra o produto e já conta o estoque, num lugar só.
   const [novoPasta, setNovoPasta] = useState(null)
@@ -2730,6 +2746,17 @@ function AbaEstoque({ cervejas, setCervejas, entradas, setEntradas, consumos, on
     return m
   }, [entradas])
 
+  // perdas somadas por produto (guardando o instante, pra cortar no "desde" igual às saídas)
+  const perdasPorCerveja = useMemo(() => {
+    const m = new Map()
+    for (const p of perdas) {
+      if (!p.cerveja_id) continue
+      if (!m.has(p.cerveja_id)) m.set(p.cerveja_id, [])
+      m.get(p.cerveja_id).push({ qtd: p.quantidade, ts: new Date(p.created_at).getTime() })
+    }
+    return m
+  }, [perdas])
+
   // calcula tudo por produto e ordena (alertas no topo)
   const lista = useMemo(() => {
     const arr = cervejas.map((c) => {
@@ -2743,10 +2770,12 @@ function AbaEstoque({ cervejas, setCervejas, entradas, setEntradas, consumos, on
         if (t < desde) desde = t
       }
       let saiu = 0
+      let perdidas = 0
       if (controlado) {
         for (const s of saidasPorNome.get(reprDe(c)) || []) if (s.ts >= desde) saiu += s.qtd
+        for (const p of perdasPorCerveja.get(c.id) || []) if (p.ts >= desde) perdidas += p.qtd
       }
-      const saldo = entrou - saiu
+      const saldo = entrou - saiu - perdidas
       const custoUnit =
         c.custo_caixa && c.unidades_caixa
           ? Number(c.custo_caixa) / Number(c.unidades_caixa)
@@ -2754,13 +2783,13 @@ function AbaEstoque({ cervejas, setCervejas, entradas, setEntradas, consumos, on
       const min = Number(c.estoque_min) || 0
       let nivel = 'novo'
       if (controlado) nivel = saldo <= 0 ? 'zero' : min > 0 && saldo <= min ? 'baixo' : 'ok'
-      return { c, controlado, entrou, saiu, saldo, custoUnit, min, nivel, ents }
+      return { c, controlado, entrou, saiu, perdidas, saldo, custoUnit, min, nivel, ents }
     })
     const rank = { zero: 0, baixo: 1, ok: 2, novo: 3 }
     return arr.sort(
       (a, b) => rank[a.nivel] - rank[b.nivel] || a.c.nome.localeCompare(b.c.nome)
     )
-  }, [cervejas, entradasPorCerveja, saidasPorNome])
+  }, [cervejas, entradasPorCerveja, saidasPorNome, perdasPorCerveja])
 
   // busca por nome (quando tem texto, ignora as pastas e mostra tudo que casa)
   const listaFiltrada = useMemo(() => {
@@ -2832,6 +2861,35 @@ function AbaEstoque({ cervejas, setCervejas, entradas, setEntradas, consumos, on
     const { error } = await supabase.from('estoque_entradas').delete().eq('id', id)
     if (error) return onErro('⚠️ Não consegui apagar. Tente de novo.')
     setEntradas((es) => es.filter((e) => e.id !== id))
+  }
+
+  // registra uma perda (quebra/vencimento): sai do estoque na hora e vai pro Relatório
+  async function registrarPerda() {
+    if (!perdendo || !setPerdas) return
+    const c = perdendo
+    const qtd = Math.max(1, Math.round(perdaQtd))
+    const linha = {
+      cerveja_id: c.id,
+      beer_nome: reprDe(c),
+      preco_unit: Number(c.preco) || 0,
+      quantidade: qtd,
+      motivo: perdaMotivo || null,
+    }
+    const { data, error } = await supabase.from('perdas').insert(linha).select().single()
+    if (error || !data) return onErro('⚠️ Não registrei a perda. Rodou o perdas.sql no Supabase?')
+    setPerdas((ps) => [data, ...ps])
+    // a perda fica registrada na própria aba Perdas (tabela perdas) — não vai
+    // pro Histórico pra não se misturar com as comandas.
+    setPerdendo(null)
+    setPerdaQtd(1)
+    setPerdaMotivo('')
+  }
+
+  async function removerPerda(id) {
+    if (!confirm('Apagar essa perda? O item volta pro estoque.')) return
+    const { error } = await supabase.from('perdas').delete().eq('id', id)
+    if (error) return onErro('⚠️ Não consegui apagar. Tente de novo.')
+    setPerdas((ps) => ps.filter((p) => p.id !== id))
   }
 
   const renderCard = (it) => (
@@ -3011,12 +3069,22 @@ function AbaEstoque({ cervejas, setCervejas, entradas, setEntradas, consumos, on
     )
   }
 
-  // ---------- TOPO: Meu estoque (visão geral) | Cadastrar ----------
+  // ---------- TOPO: Meu estoque (visão geral) | Cadastrar | Perdas ----------
   const overviewRows = busca.trim() ? listaFiltrada : lista
   const nRepor = lista.filter((i) => i.nivel === 'zero' || i.nivel === 'baixo').length
   const totalUn = lista.reduce((s, it) => s + (it.controlado ? it.saldo : 0), 0)
   const statusLabel = (n) =>
     ({ zero: 'Acabou', baixo: 'Acabando', ok: 'Em estoque', novo: 'Sem contagem' }[n] || '')
+
+  // aba Perdas: lista de produtos pra escolher + totais do que já se perdeu
+  const qPerda = normalizar(buscaPerda)
+  const perdaFiltrados = qPerda ? cervejas.filter((c) => normalizar(reprDe(c)).includes(qPerda)) : cervejas
+  const totalPerdidas = perdas.reduce((s, p) => s + (p.quantidade || 0), 0)
+  const valorPerdido = perdas.reduce((s, p) => s + Number(p.preco_unit || 0) * (p.quantidade || 0), 0)
+  const quandoPerda = (ts) =>
+    new Date(ts).toLocaleString('pt-BR', {
+      day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit',
+    })
 
   return (
     <main className="conteudo">
@@ -3033,9 +3101,15 @@ function AbaEstoque({ cervejas, setCervejas, entradas, setEntradas, consumos, on
         >
           ✏️ Cadastrar
         </button>
+        <button
+          className={vista === 'perdas' ? 'on' : ''}
+          onClick={() => setVista('perdas')}
+        >
+          🗑️ Perdas
+        </button>
       </div>
 
-      {cervejas.length > 3 && (
+      {cervejas.length > 3 && vista !== 'perdas' && (
         <div className="busca-wrap est-busca">
           <input
             className="campo busca"
@@ -3125,6 +3199,9 @@ function AbaEstoque({ cervejas, setCervejas, entradas, setEntradas, consumos, on
                           {caixaTxt && <span className="est-ov-chip">📦 {caixaTxt}</span>}
                           <span className="est-ov-chip">📥 entrou {it.entrou}</span>
                           <span className="est-ov-chip">📤 saiu {it.saiu}</span>
+                          {it.perdidas > 0 && (
+                            <span className="est-ov-chip est-ov-chip-perda">🗑️ perdas {it.perdidas}</span>
+                          )}
                           {Number(it.c.preco) > 0 && (
                             <span className="est-ov-chip">🏷️ {money(it.c.preco)}</span>
                           )}
@@ -3149,6 +3226,137 @@ function AbaEstoque({ cervejas, setCervejas, entradas, setEntradas, consumos, on
             )}
           </>
         )
+      ) : vista === 'perdas' ? (
+        // ---------- PERDAS (quebra / vencimento / estrago) ----------
+        <>
+          <p className="perda-dica">
+            Quebrou, venceu ou estragou? Toque no produto — ele sai do estoque na hora.
+          </p>
+
+          {cervejas.length > 3 && (
+            <div className="busca-wrap est-busca">
+              <input
+                className="campo busca"
+                placeholder="🔎 Qual produto se perdeu?"
+                value={buscaPerda}
+                onChange={(e) => setBuscaPerda(e.target.value)}
+              />
+              {buscaPerda && (
+                <button className="busca-x" onClick={() => setBuscaPerda('')} aria-label="Limpar busca">
+                  ✕
+                </button>
+              )}
+            </div>
+          )}
+
+          <div className="perda-prods">
+            {perdaFiltrados.length === 0 && <p className="vazio">Nenhum produto com esse nome.</p>}
+            {perdaFiltrados.map((c) => (
+              <button
+                key={c.id}
+                className="perda-prod"
+                onClick={() => {
+                  setPerdendo(c)
+                  setPerdaQtd(1)
+                  setPerdaMotivo('')
+                }}
+              >
+                {c.foto && (
+                  <img
+                    className="est-cab-foto"
+                    src={c.foto}
+                    alt=""
+                    loading="lazy"
+                    onError={(e) => { e.currentTarget.style.display = 'none' }}
+                  />
+                )}
+                <span className="perda-prod-nome">{reprDe(c)}</span>
+                <span className="perda-prod-add">− estoque</span>
+              </button>
+            ))}
+          </div>
+
+          <h3 className="sec">🗑️ Perdas registradas</h3>
+          {perdas.length === 0 ? (
+            <p className="vazio">Nenhuma perda registrada. 👍</p>
+          ) : (
+            <>
+              <div className="perda-total">
+                <span>
+                  {totalPerdidas} {totalPerdidas === 1 ? 'item perdido' : 'itens perdidos'}
+                </span>
+                {valorPerdido > 0 && <b>{money(valorPerdido)}</b>}
+              </div>
+              <div className="perda-lista">
+                {perdas.map((p) => (
+                  <div key={p.id} className="perda-linha">
+                    <div className="perda-linha-txt">
+                      <span className="perda-linha-nome">
+                        {p.quantidade}× {p.beer_nome}
+                      </span>
+                      <span className="perda-linha-sub">
+                        {p.motivo ? `${p.motivo} · ` : ''}
+                        {quandoPerda(p.created_at)}
+                      </span>
+                    </div>
+                    {Number(p.preco_unit) > 0 && (
+                      <span className="perda-linha-val">{money(p.preco_unit * p.quantidade)}</span>
+                    )}
+                    <button
+                      className="est-card-x"
+                      onClick={() => removerPerda(p.id)}
+                      aria-label="Apagar perda"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+
+          {perdendo && (
+            <div className="pag-overlay" onClick={() => setPerdendo(null)}>
+              <div className="pag-box perda-box" onClick={(e) => e.stopPropagation()}>
+                <button className="modal-x" onClick={() => setPerdendo(null)} aria-label="Fechar">
+                  ✕
+                </button>
+                <div className="perda-box-prod">
+                  {perdendo.foto && (
+                    <img className="est-cab-foto" src={perdendo.foto} alt="" />
+                  )}
+                  <strong>{reprDe(perdendo)}</strong>
+                </div>
+
+                <span className="perda-box-lbl">Quantas unidades se perderam?</span>
+                <div className="md-step perda-step">
+                  <button onClick={() => setPerdaQtd((n) => Math.max(1, n - 1))} disabled={perdaQtd <= 1}>
+                    −
+                  </button>
+                  <strong>{perdaQtd}</strong>
+                  <button onClick={() => setPerdaQtd((n) => n + 1)}>+</button>
+                </div>
+
+                <span className="perda-box-lbl">Motivo (opcional)</span>
+                <div className="perda-motivos">
+                  {['Quebrou', 'Venceu', 'Estragou', 'Cortesia', 'Outro'].map((m) => (
+                    <button
+                      key={m}
+                      className={'perda-mot' + (perdaMotivo === m ? ' on' : '')}
+                      onClick={() => setPerdaMotivo((v) => (v === m ? '' : m))}
+                    >
+                      {m}
+                    </button>
+                  ))}
+                </div>
+
+                <button className="btn-grande perda-confirm" onClick={registrarPerda}>
+                  🗑️ Registrar perda ({perdaQtd})
+                </button>
+              </div>
+            </div>
+          )}
+        </>
       ) : // ---------- CADASTRAR ----------
       busca.trim() ? (
         <div className="est-lista">
@@ -3477,7 +3685,7 @@ function diaBonito(dia) {
   return `${d}/${m}`
 }
 
-function Relatorio({ consumos, cervejas = [], pagas = [], abertas = [] }) {
+function Relatorio({ consumos, cervejas = [], pagas = [], abertas = [], perdas = [] }) {
   const [periodo, setPeriodo] = useState('hoje')
   const [dia, setDia] = useState(hojeISO) // dia escolhido no calendário (modo 'dia')
 
@@ -3563,6 +3771,23 @@ function Relatorio({ consumos, cervejas = [], pagas = [], abertas = [] }) {
     }
   }, [consumos, custoPorNome, periodo, dia])
 
+  // Perdas do período — bloco à parte (NUNCA entra no faturamento/venda)
+  const perdasResumo = useMemo(() => {
+    const { inicio, fim } = janelaPeriodo(periodo, dia)
+    let qtd = 0
+    let valor = 0
+    const porProd = new Map()
+    for (const p of perdas) {
+      const t = new Date(p.created_at).getTime()
+      if (t < inicio || t > fim) continue
+      qtd += p.quantidade
+      valor += Number(p.preco_unit) * p.quantidade
+      if (!porProd.has(p.beer_nome)) porProd.set(p.beer_nome, { nome: p.beer_nome, qtd: 0 })
+      porProd.get(p.beer_nome).qtd += p.quantidade
+    }
+    return { qtd, valor, lista: [...porProd.values()].sort((a, b) => b.qtd - a.qtd) }
+  }, [perdas, periodo, dia])
+
   return (
     <main className="conteudo">
       <div className="rel-periodos">
@@ -3590,7 +3815,7 @@ function Relatorio({ consumos, cervejas = [], pagas = [], abertas = [] }) {
         </div>
       )}
 
-      {dados.vazio ? (
+      {dados.vazio && perdasResumo.qtd === 0 ? (
         <p className="vazio">
           {periodo === 'dia'
             ? `Nenhuma venda no dia ${diaBonito(dia)}.`
@@ -3598,6 +3823,8 @@ function Relatorio({ consumos, cervejas = [], pagas = [], abertas = [] }) {
         </p>
       ) : (
         <>
+          {!dados.vazio && (
+          <>
           <div className="rel-kpis">
             <div className="kpi kpi-destaque">
               <span className="kpi-lbl">Faturamento</span>
@@ -3671,6 +3898,34 @@ function Relatorio({ consumos, cervejas = [], pagas = [], abertas = [] }) {
               </div>
             ))}
           </div>
+          </>
+          )}
+
+          {perdasResumo.qtd > 0 && (
+            <>
+              <h3 className="sec">🗑️ Perdas no período</h3>
+              <div className="rel-perdas">
+                <div className="perda-kpi">
+                  <span className="kpi-lbl">Itens perdidos</span>
+                  <strong className="kpi-val">{perdasResumo.qtd}</strong>
+                </div>
+                {perdasResumo.valor > 0 && (
+                  <div className="perda-kpi">
+                    <span className="kpi-lbl">Prejuízo (preço de venda)</span>
+                    <strong className="kpi-val">{money(perdasResumo.valor)}</strong>
+                  </div>
+                )}
+              </div>
+              <div className="rel-perda-lista">
+                {perdasResumo.lista.map((p) => (
+                  <div key={p.nome} className="rel-perda-item">
+                    <span className="rel-perda-nome">{p.nome}</span>
+                    <span className="rel-perda-qtd">{p.qtd} un.</span>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
         </>
       )}
     </main>

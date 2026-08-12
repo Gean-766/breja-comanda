@@ -3643,3 +3643,147 @@ input[type='number'] {
   font-weight: 700;
   color: var(--muted);
 }
+
+/* ===== Aba PERDAS (quebra/vencimento) ===== */
+/* 3 botões no seletor de vista: aperta um pouco a fonte pra caber */
+.est-vista button { font-size: 14px; padding: 11px 6px; }
+
+.perda-dica {
+  color: var(--muted);
+  font-size: 14px;
+  margin-bottom: 12px;
+}
+.perda-prods {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 18px;
+}
+.perda-prod {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--linha, rgba(255, 255, 255, 0.08));
+  border-radius: 14px;
+  background: var(--card);
+  color: var(--text);
+  text-align: left;
+}
+.perda-prod:active { transform: scale(0.99); }
+.perda-prod-nome {
+  flex: 1;
+  min-width: 0;
+  font-size: 16px;
+  font-weight: 800;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.perda-prod-add {
+  flex-shrink: 0;
+  font-size: 12px;
+  font-weight: 800;
+  color: #ef7f70;
+  background: rgba(239, 127, 112, 0.14);
+  padding: 5px 9px;
+  border-radius: 999px;
+}
+.perda-total {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  background: var(--card);
+  border-radius: 12px;
+  padding: 12px 14px;
+  margin-bottom: 10px;
+  font-weight: 700;
+}
+.perda-total b { color: #ef7f70; font-size: 18px; }
+.perda-lista {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.perda-linha {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--card);
+  border-radius: 12px;
+  padding: 10px 12px;
+}
+.perda-linha-txt { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.perda-linha-nome { font-size: 15px; font-weight: 800; }
+.perda-linha-sub { font-size: 12px; color: var(--muted); text-transform: capitalize; }
+.perda-linha-val { flex-shrink: 0; font-weight: 800; color: #ef7f70; }
+
+/* modal de lançar perda (herda .pag-box) */
+.perda-box { position: relative; gap: 6px; }
+.perda-box-prod {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 6px;
+}
+.perda-box-prod strong { font-size: 19px; font-weight: 900; }
+.perda-box-lbl {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--muted);
+  margin-top: 8px;
+}
+.perda-step { align-self: flex-start; }
+.perda-motivos { display: flex; flex-wrap: wrap; gap: 8px; }
+.perda-mot {
+  border: 1px solid var(--linha, rgba(255, 255, 255, 0.12));
+  background: transparent;
+  color: var(--text);
+  font-weight: 700;
+  font-size: 14px;
+  padding: 8px 12px;
+  border-radius: 999px;
+}
+.perda-mot.on {
+  background: #ef7f70;
+  border-color: #ef7f70;
+  color: #2a0f0b;
+}
+.perda-confirm {
+  margin-top: 14px;
+  background: #ef7f70;
+  color: #2a0f0b;
+}
+
+/* chip de perda no card do Meu estoque */
+.est-ov-chip-perda {
+  color: #ef7f70 !important;
+  background: rgba(239, 127, 112, 0.14) !important;
+}
+
+/* bloco de Perdas no Relatório */
+.rel-perdas { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+.perda-kpi {
+  flex: 1;
+  min-width: 130px;
+  background: rgba(239, 127, 112, 0.12);
+  border-radius: 14px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.perda-kpi .kpi-val { color: #ef7f70; }
+.rel-perda-lista { display: flex; flex-direction: column; gap: 6px; }
+.rel-perda-item {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 9px 12px;
+  background: var(--card);
+  border-radius: 10px;
+}
+.rel-perda-nome { font-weight: 700; }
+.rel-perda-qtd { color: var(--muted); font-weight: 700; flex-shrink: 0; }
