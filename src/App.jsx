@@ -1799,6 +1799,15 @@ function VendaBalcao({ cervejas, onVender, onVoltar }) {
                 style={{ background: cor.bg, color: cor.fg }}
                 onClick={() => add(c)}
               >
+                {c.foto && (
+                  <img
+                    className="pc-foto"
+                    src={c.foto}
+                    alt=""
+                    loading="lazy"
+                    onError={(e) => { e.currentTarget.style.display = 'none' }}
+                  />
+                )}
                 <span className="pc-nome">
                   {c.nome}
                   {n > 0 && <span className="pc-badge">{n}</span>}
@@ -3218,6 +3227,15 @@ function EstoqueCard({ it, aberto, onAbrir, onCampo, onAbastecer, onRemoverEntra
     <div className={'est-card ' + badge.cls + (aberto ? ' on' : '')}>
       <div className="est-cab-row">
         <button className="est-cab" onClick={onAbrir}>
+          {c.foto && (
+            <img
+              className="est-cab-foto"
+              src={c.foto}
+              alt=""
+              loading="lazy"
+              onError={(e) => { e.currentTarget.style.display = 'none' }}
+            />
+          )}
           <div className="est-cab-txt">
             <span className="est-nome">{reprDe(c)}</span>
             <span className={'est-badge ' + badge.cls}>{badge.txt}</span>
