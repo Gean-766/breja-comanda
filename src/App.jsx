@@ -2609,6 +2609,7 @@ function AbaEstoque({ cervejas, setCervejas, entradas, setEntradas, consumos, pe
   const [perdaQtd, setPerdaQtd] = useState(1)
   const [perdaMotivo, setPerdaMotivo] = useState('')
   const [buscaPerda, setBuscaPerda] = useState('')
+  const [perdaDiaAberto, setPerdaDiaAberto] = useState(null) // pasta de dia aberta (YYYY-MM-DD)
   // formulário de novo produto — novoPasta guarda EM QUAL pasta estou adicionando
   // (null = form fechado). Cadastra o produto e já conta o estoque, num lugar só.
   const [novoPasta, setNovoPasta] = useState(null)
@@ -3081,10 +3082,37 @@ function AbaEstoque({ cervejas, setCervejas, entradas, setEntradas, consumos, pe
   const perdaFiltrados = qPerda ? cervejas.filter((c) => normalizar(reprDe(c)).includes(qPerda)) : cervejas
   const totalPerdidas = perdas.reduce((s, p) => s + (p.quantidade || 0), 0)
   const valorPerdido = perdas.reduce((s, p) => s + Number(p.preco_unit || 0) * (p.quantidade || 0), 0)
-  const quandoPerda = (ts) =>
-    new Date(ts).toLocaleString('pt-BR', {
-      day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit',
-    })
+  const horaPerda = (ts) =>
+    new Date(ts).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+  const chaveDia = (d) =>
+    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  const rotuloDia = (key) => {
+    const hoje = new Date()
+    const ontem = new Date()
+    ontem.setDate(ontem.getDate() - 1)
+    if (key === chaveDia(hoje)) return 'Hoje'
+    if (key === chaveDia(ontem)) return 'Ontem'
+    const [y, mo, da] = key.split('-')
+    return `${da}/${mo}/${y}`
+  }
+  // perdas agrupadas por dia (a lista já vem mais nova primeiro → dias em ordem)
+  const perdasPorDia = []
+  {
+    const idx = new Map()
+    for (const p of perdas) {
+      const key = chaveDia(new Date(p.created_at))
+      let g = idx.get(key)
+      if (!g) {
+        g = { dia: key, itens: [], qtd: 0, valor: 0 }
+        idx.set(key, g)
+        perdasPorDia.push(g)
+      }
+      g.itens.push(p)
+      g.qtd += p.quantidade
+      g.valor += Number(p.preco_unit) * p.quantidade
+    }
+  }
+  const diaFoco = perdaDiaAberto ? perdasPorDia.find((g) => g.dia === perdaDiaAberto) : null
 
   return (
     <main className="conteudo">
@@ -3279,24 +3307,31 @@ function AbaEstoque({ cervejas, setCervejas, entradas, setEntradas, consumos, pe
           <h3 className="sec">🗑️ Perdas registradas</h3>
           {perdas.length === 0 ? (
             <p className="vazio">Nenhuma perda registrada. 👍</p>
-          ) : (
+          ) : diaFoco ? (
+            // ---- dentro da pasta de um dia ----
             <>
+              <div className="est-nav">
+                <button className="est-voltar" onClick={() => setPerdaDiaAberto(null)}>
+                  ‹ Voltar
+                </button>
+                <span className="est-nav-tit">📅 {rotuloDia(diaFoco.dia)}</span>
+              </div>
               <div className="perda-total">
                 <span>
-                  {totalPerdidas} {totalPerdidas === 1 ? 'item perdido' : 'itens perdidos'}
+                  {diaFoco.qtd} {diaFoco.qtd === 1 ? 'item perdido' : 'itens perdidos'}
                 </span>
-                {valorPerdido > 0 && <b>{money(valorPerdido)}</b>}
+                {diaFoco.valor > 0 && <b>{money(diaFoco.valor)}</b>}
               </div>
               <div className="perda-lista">
-                {perdas.map((p) => (
+                {diaFoco.itens.map((p) => (
                   <div key={p.id} className="perda-linha">
                     <div className="perda-linha-txt">
                       <span className="perda-linha-nome">
                         {p.quantidade}× {p.beer_nome}
                       </span>
                       <span className="perda-linha-sub">
-                        {p.motivo ? `${p.motivo} · ` : ''}
-                        {quandoPerda(p.created_at)}
+                        🕐 {horaPerda(p.created_at)}
+                        {p.motivo ? ` · ${p.motivo}` : ''}
                       </span>
                     </div>
                     {Number(p.preco_unit) > 0 && (
@@ -3310,6 +3345,36 @@ function AbaEstoque({ cervejas, setCervejas, entradas, setEntradas, consumos, pe
                       ✕
                     </button>
                   </div>
+                ))}
+              </div>
+            </>
+          ) : (
+            // ---- pastas por dia ----
+            <>
+              <div className="perda-total">
+                <span>
+                  {totalPerdidas} {totalPerdidas === 1 ? 'item perdido' : 'itens perdidos'} ·{' '}
+                  {perdasPorDia.length} {perdasPorDia.length === 1 ? 'dia' : 'dias'}
+                </span>
+                {valorPerdido > 0 && <b>{money(valorPerdido)}</b>}
+              </div>
+              <div className="est-folders">
+                {perdasPorDia.map((g) => (
+                  <button
+                    key={g.dia}
+                    className="est-folder"
+                    onClick={() => setPerdaDiaAberto(g.dia)}
+                  >
+                    <span className="est-folder-ic">📅</span>
+                    <div className="est-folder-txt">
+                      <span className="est-folder-nome">{rotuloDia(g.dia)}</span>
+                      <span className="est-folder-sub">
+                        {g.qtd} {g.qtd === 1 ? 'item' : 'itens'}
+                        {g.valor > 0 ? ` · ${money(g.valor)}` : ''}
+                      </span>
+                    </div>
+                    <span className="est-folder-seta">›</span>
+                  </button>
                 ))}
               </div>
             </>
