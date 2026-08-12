@@ -1255,6 +1255,15 @@ function Detalhe({ cliente, cervejas, consumos, resumo, parciais = [], onAdd, on
                 style={{ background: cor.bg, color: cor.fg }}
                 onClick={() => setConfirmar(c)}
               >
+                {c.foto && (
+                  <img
+                    className="pc-foto"
+                    src={c.foto}
+                    alt=""
+                    loading="lazy"
+                    onError={(e) => { e.currentTarget.style.display = 'none' }}
+                  />
+                )}
                 <span className="pc-nome">{c.nome}</span>
                 <span className="pc-info">
                   {c.tamanho && <span className="pc-tam">{c.tamanho}</span>}
@@ -2545,7 +2554,11 @@ const CATEGORIAS_ESTOQUE = [
   { id: 'cerveja', label: 'Cerveja', icone: '🍺', kw: ['cerveja', 'chopp', 'brahma', 'skol', 'antarctica', 'original', 'bohemia', 'heineken', 'amstel', 'budweiser', 'stella', 'spaten', 'eisenbahn', 'itaipava', 'petra', 'devassa', 'kaiser', 'schin', 'serramalte', 'bavaria', 'corona', 'becks', 'patagonia', 'imperio', 'colorado', 'praya', 'caracu', 'polar', 'therezopolis', 'baden', 'lokal', 'long neck', 'litrao', 'latao', 'pilsen', 'malte'] },
   { id: 'refri', label: 'Refrigerante', icone: '🥤', kw: ['refri', 'refrigerante', 'coca', 'guarana', 'fanta', 'sprite', 'pepsi', 'kuat', 'schweppes', 'dolly', 'sukita', 'soda', 'tubaina', 'h2oh'] },
   { id: 'energetico', label: 'Energético', icone: '⚡', kw: ['energetico', 'energy', 'red bull', 'redbull', 'monster', 'tnt', 'fusion', 'baly', 'red horse', 'burn'] },
-  { id: 'agua', label: 'Água', icone: '💧', kw: ['agua', 'água', 'bonafont', 'indaia', 'minalba', 'crystal'] },
+  { id: 'agua', label: 'Água', icone: '💧', kw: ['agua', 'água', 'bonafont', 'indaia', 'minalba', 'crystal', 'h2o', 'h20', 'gatorade'] },
+  { id: 'suco', label: 'Suco', icone: '🧃', kw: ['suco', 'kapo', 'delvale', 'del valle', 'todinho', 'nectar'] },
+  { id: 'salgadinho', label: 'Salgadinho', icone: '🍟', kw: ['salgad', 'ruffles', 'doritos', 'cheetos', 'torcida', 'torresmo', 'pururuca', 'sanditos', 'fandangos', 'batata', 'amendoim'] },
+  { id: 'dose', label: 'Dose', icone: '🥃', kw: ['dose', 'whisky', 'whiskey', 'red label', 'old par', 'cavalo branco', 'velho barreiro', 'compare', 'cachaca', 'vodka', 'gin ', 'conhaque'] },
+  { id: 'sorvete', label: 'Sorvete', icone: '🍦', kw: ['sorvete', 'picole', 'iogurte', 'mini torta', 'gelado', 'acai'] },
   { id: 'outros', label: 'Outros', icone: '📦', kw: [] },
 ]
 function categoriaDe(nome) {
@@ -3046,6 +3059,15 @@ function AbaEstoque({ cervejas, setCervejas, entradas, setEntradas, consumos, on
                     <div key={it.c.id} className={'est-ov-card est-ovc-' + it.nivel}>
                       <div className="est-ov-top">
                         <span className={'est-vg-status est-' + it.nivel} />
+                        {it.c.foto && (
+                          <img
+                            className="est-ov-foto"
+                            src={it.c.foto}
+                            alt=""
+                            loading="lazy"
+                            onError={(e) => { e.currentTarget.style.display = 'none' }}
+                          />
+                        )}
                         <div className="est-ov-id">
                           <span className="est-ov-nome">{reprDe(it.c)}</span>
                           <span className={'est-ov-tag est-' + it.nivel}>
