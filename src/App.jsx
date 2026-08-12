@@ -359,6 +359,8 @@ export default function App({ distribuidora = null, onSair = null }) {
         await supabase.from('pagamentos_parciais').delete().eq('id', p.parcial.id)
       } else if (h.tipo === 'renomear_cliente') {
         await supabase.from('clientes').update({ nome: p.antes }).eq('id', p.id)
+      } else if (h.tipo === 'perda') {
+        await supabase.from('perdas').delete().eq('id', p.id)
       } else {
         return
       }
@@ -2165,6 +2167,7 @@ const HIST_INFO = {
   pagar_parte: { icone: '💰' },
   renomear_cliente: { icone: '✏️' },
   venda_balcao: { icone: '⚡' },
+  perda: { icone: '🗑️', cls: 'hi-rem' },
   add_produto: { icone: '🆕' },
   remover_produto: { icone: '❌' },
   editar_produto: { icone: '✏️' },
@@ -2182,6 +2185,7 @@ const PASTA_HIST = {
   pagar_parte: 'comanda',
   renomear_cliente: 'comanda',
   venda_balcao: 'balcao',
+  perda: 'perdas',
   add_produto: 'estoque',
   remover_produto: 'estoque',
   editar_produto: 'estoque',
@@ -2255,8 +2259,8 @@ function AbaHistorico({ historico, onReverter }) {
 
   // separa o histórico nas 3 pastas fixas
   const grupos = useMemo(() => {
-    const g = { comanda: [], balcao: [], estoque: [] }
-    for (const h of historico) g[pastaDeHist(h)].push(h)
+    const g = { comanda: [], balcao: [], estoque: [], perdas: [] }
+    for (const h of historico) (g[pastaDeHist(h)] || g.comanda).push(h)
     return g
   }, [historico])
 
@@ -2278,6 +2282,7 @@ function AbaHistorico({ historico, onReverter }) {
     { id: 'comanda', icone: '🧾', nome: 'Comandas', n: grupos.comanda.length },
     { id: 'balcao', icone: '⚡', nome: 'Vendas rápidas', n: grupos.balcao.length },
     { id: 'estoque', icone: '📦', nome: 'Estoque / Produtos', n: grupos.estoque.length },
+    { id: 'perdas', icone: '🗑️', nome: 'Perdas', n: grupos.perdas.length },
   ]
   const plural = (n) => (n === 1 ? 'movimentação' : 'movimentações')
   const estadoDe = (itens) => {
@@ -2879,8 +2884,8 @@ function AbaEstoque({ cervejas, setCervejas, entradas, setEntradas, consumos, pe
     const { data, error } = await supabase.from('perdas').insert(linha).select().single()
     if (error || !data) return onErro('⚠️ Não registrei a perda. Rodou o perdas.sql no Supabase?')
     setPerdas((ps) => [data, ...ps])
-    // a perda fica registrada na própria aba Perdas (tabela perdas) — não vai
-    // pro Histórico pra não se misturar com as comandas.
+    // registra também no Histórico (pasta Perdas) — dá pra desfazer por lá
+    onLog?.('perda', `Perda: ${qtd}× ${reprDe(c)}${perdaMotivo ? ` (${perdaMotivo})` : ''}`, { id: data.id })
     setPerdendo(null)
     setPerdaQtd(1)
     setPerdaMotivo('')
@@ -3258,7 +3263,7 @@ function AbaEstoque({ cervejas, setCervejas, entradas, setEntradas, consumos, pe
         // ---------- PERDAS (quebra / vencimento / estrago) ----------
         <>
           <p className="perda-dica">
-            Quebrou, venceu ou estragou? Toque no produto — ele sai do estoque na hora.
+            O que quebrou, venceu ou estragou fica registrado aqui — por dia, pra ter controle.
           </p>
 
           {cervejas.length > 3 && (
@@ -3276,33 +3281,6 @@ function AbaEstoque({ cervejas, setCervejas, entradas, setEntradas, consumos, pe
               )}
             </div>
           )}
-
-          <div className="perda-prods">
-            {perdaFiltrados.length === 0 && <p className="vazio">Nenhum produto com esse nome.</p>}
-            {perdaFiltrados.map((c) => (
-              <button
-                key={c.id}
-                className="perda-prod"
-                onClick={() => {
-                  setPerdendo(c)
-                  setPerdaQtd(1)
-                  setPerdaMotivo('')
-                }}
-              >
-                {c.foto && (
-                  <img
-                    className="est-cab-foto"
-                    src={c.foto}
-                    alt=""
-                    loading="lazy"
-                    onError={(e) => { e.currentTarget.style.display = 'none' }}
-                  />
-                )}
-                <span className="perda-prod-nome">{reprDe(c)}</span>
-                <span className="perda-prod-add">− estoque</span>
-              </button>
-            ))}
-          </div>
 
           <h3 className="sec">🗑️ Perdas registradas</h3>
           {perdas.length === 0 ? (
@@ -3379,6 +3357,35 @@ function AbaEstoque({ cervejas, setCervejas, entradas, setEntradas, consumos, pe
               </div>
             </>
           )}
+
+          <h3 className="sec">➕ Registrar uma perda</h3>
+          <p className="perda-dica">Toque no produto — ele sai do estoque na hora.</p>
+          <div className="perda-prods">
+            {perdaFiltrados.length === 0 && <p className="vazio">Nenhum produto com esse nome.</p>}
+            {perdaFiltrados.map((c) => (
+              <button
+                key={c.id}
+                className="perda-prod"
+                onClick={() => {
+                  setPerdendo(c)
+                  setPerdaQtd(1)
+                  setPerdaMotivo('')
+                }}
+              >
+                {c.foto && (
+                  <img
+                    className="est-cab-foto"
+                    src={c.foto}
+                    alt=""
+                    loading="lazy"
+                    onError={(e) => { e.currentTarget.style.display = 'none' }}
+                  />
+                )}
+                <span className="perda-prod-nome">{reprDe(c)}</span>
+                <span className="perda-prod-add">− estoque</span>
+              </button>
+            ))}
+          </div>
 
           {perdendo && (
             <div className="pag-overlay" onClick={() => setPerdendo(null)}>
