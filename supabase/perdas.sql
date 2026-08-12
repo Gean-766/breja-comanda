@@ -36,8 +36,14 @@ create policy "tenant_perdas" on public.perdas for all to authenticated
   using      (distribuidora_id = fn_minha_distribuidora())
   with check (distribuidora_id = fn_minha_distribuidora());
 
--- Tempo real (aditivo — não recria a publicação)
-alter publication supabase_realtime add table perdas;
+-- Tempo real (aditivo — não recria a publicação).
+-- Protegido: se a tabela já estiver na publicação (re-run), ignora sem erro.
+do $$
+begin
+  alter publication supabase_realtime add table perdas;
+exception
+  when duplicate_object then null; -- já estava na publicação, tudo certo
+end $$;
 
 -- ####  FIM  ####
 -- Confere: select tablename, policyname from pg_policies where tablename = 'perdas';
