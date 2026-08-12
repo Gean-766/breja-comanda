@@ -2,8 +2,9 @@
 --  BOLA 7  →  Catálogo/estoque inicial (83 produtos) COM FOTO
 --  Roda no Supabase → SQL Editor → New query → cola → Run.
 --
---  Seguro e IDEMPOTENTE: só adiciona o que ainda não existe pra Bola 7
---  (rodar de novo não duplica). Preços entram como R$ 0,00 — o lojista
+--  Seguro e IDEMPOTENTE: só adiciona o que ainda não existe pra Bola 7 e
+--  preenche a foto de quem entrou sem ela (rodar de novo não duplica e não
+--  sobrescreve foto já existente). Preços entram como R$ 0,00 — o lojista
 --  ajusta preço/custo/unid. na aba "Cadastrar" do app dele.
 --
 --  As fotos ficam dentro do app (/public/produtos), servidas pela Vercel.
@@ -16,6 +17,7 @@ do $$
 declare
   d_id uuid;
   n    int;
+  m    int;
 begin
   -- acha o Bola 7 pelo NOME normalizado (ignora espaço/maiúscula: "Bola 7", "bola7"...)
   select id into d_id
@@ -27,12 +29,13 @@ begin
     raise exception 'Distribuidora "Bola 7" nao encontrada. Confira em: select nome from distribuidoras;';
   end if;
 
-  with novos(nome, tamanho, categoria, foto, ordem) as (values
+  create temporary table _bola7 (nome text, tamanho text, categoria text, foto text, ordem int) on commit drop;
+  insert into _bola7 (nome, tamanho, categoria, foto, ordem) values
     ('Heineken 600ml','600ml','Cerveja','/produtos/heineken-600ml.png',0),
     ('Corona 600ml','600ml','Cerveja','/produtos/corona-600ml.png',1),
     ('Stella 600ml','600ml','Cerveja','/produtos/stella-600ml.png',2),
     ('Stella Gold 600ml','600ml','Cerveja','/produtos/stella-gold-600ml.png',3),
-    ('Spaten 600ml','600ml','Cerveja',null,4),
+    ('Spaten 600ml','600ml','Cerveja','/produtos/spaten-600ml.png',4),
     ('Brahma 600ml','600ml','Cerveja','/produtos/brahma-600ml.png',5),
     ('Original 600ml','600ml','Cerveja','/produtos/original-600ml.png',6),
     ('Antártica 600ml','600ml','Cerveja','/produtos/antartica-600ml.png',7),
@@ -111,17 +114,29 @@ begin
     ('Picolé 15','','Sorvete','/produtos/picole.png',80),
     ('Picolé 18','','Sorvete','/produtos/picole.png',81),
     ('Pote de sorvete 30','','Sorvete','/produtos/pote-de-sorvete-30.png',82)
-  )
+  ;
+
+  -- 1) insere só o que ainda não existe pra Bola 7
   insert into public.cervejas (nome, tamanho, preco, categoria, foto, ordem, ativo, distribuidora_id)
   select nv.nome, nv.tamanho, 0, nv.categoria, nv.foto, nv.ordem, true, d_id
-    from novos nv
+    from _bola7 nv
    where not exists (
      select 1 from public.cervejas c
       where c.distribuidora_id = d_id and c.nome = nv.nome
    );
-
   get diagnostics n = row_count;
-  raise notice 'Bola 7 (%): % produtos novos inseridos.', d_id, n;
+
+  -- 2) preenche a foto de quem já existe mas está sem (ex: Spaten 600 que entrou sem foto)
+  update public.cervejas c
+     set foto = nv.foto
+    from _bola7 nv
+   where c.distribuidora_id = d_id
+     and c.nome = nv.nome
+     and nv.foto is not null
+     and (c.foto is null or c.foto = '');
+  get diagnostics m = row_count;
+
+  raise notice 'Bola 7 (%): % produtos novos, % fotos preenchidas.', d_id, n, m;
 end $$;
 
 -- Confere:  select nome, tamanho, categoria, foto, preco from cervejas

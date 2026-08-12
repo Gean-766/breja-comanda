@@ -2596,6 +2596,7 @@ function AbaEstoque({ cervejas, setCervejas, entradas, setEntradas, consumos, on
   const [nAviso, setNAviso] = useState('') // avisar quando saldo <= X (opcional)
   const [busca, setBusca] = useState('')
   const [pastaAberta, setPastaAberta] = useState(null) // pasta em foco (drill-down)
+  const [buscaPasta, setBuscaPasta] = useState('') // busca dentro da pasta aberta
   const [pastasCustom, setPastasCustom] = useState([]) // pastas criadas nesta sessão
   const reprDe = (c) => (c.tamanho ? `${c.nome} ${c.tamanho}` : c.nome)
 
@@ -2934,6 +2935,9 @@ function AbaEstoque({ cervejas, setCervejas, entradas, setEntradas, consumos, on
 
   const pastaFoco = pastaAberta ? pastas.find((p) => p.label === pastaAberta) : null
   const itensFoco = pastaFoco ? pastaFoco.itens : []
+  const itensFocoVis = buscaPasta.trim()
+    ? itensFoco.filter((it) => normalizar(reprDe(it.c)).includes(normalizar(buscaPasta)))
+    : itensFoco
 
   if (pastaAberta) {
     // ---------- DETALHE: só a pasta escolhida ----------
@@ -2945,6 +2949,7 @@ function AbaEstoque({ cervejas, setCervejas, entradas, setEntradas, consumos, on
             onClick={() => {
               setPastaAberta(null)
               setNovoPasta(null)
+              setBuscaPasta('')
             }}
           >
             ‹ Voltar
@@ -2954,8 +2959,33 @@ function AbaEstoque({ cervejas, setCervejas, entradas, setEntradas, consumos, on
           </span>
         </div>
 
-        {itensFoco.length > 0 && (
-          <div className="est-lista">{itensFoco.map(renderCard)}</div>
+        {itensFoco.length > 5 && (
+          <div className="busca-wrap est-busca">
+            <input
+              className="campo busca"
+              placeholder={`🔎 Buscar em ${pastaAberta}…`}
+              value={buscaPasta}
+              onChange={(e) => setBuscaPasta(e.target.value)}
+            />
+            {buscaPasta && (
+              <button
+                className="busca-x"
+                onClick={() => setBuscaPasta('')}
+                aria-label="Limpar busca"
+              >
+                ✕
+              </button>
+            )}
+          </div>
+        )}
+
+        {itensFocoVis.length > 0 && (
+          <div className="est-lista">{itensFocoVis.map(renderCard)}</div>
+        )}
+        {itensFoco.length > 0 && itensFocoVis.length === 0 && (
+          <p className="est-pasta-vazia">
+            Nenhum produto com “{buscaPasta}” nessa pasta.
+          </p>
         )}
         {itensFoco.length === 0 && novoPasta !== pastaAberta && (
           <p className="est-pasta-vazia">Pasta vazia — adicione o primeiro produto.</p>
