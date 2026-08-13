@@ -3756,6 +3756,13 @@ function diaBonito(dia) {
   return `${d}/${m}`
 }
 
+// A venda de balcão nasce com o nome "Balcão 19:42" (ver venderBalcao). É por
+// esse nome que dá pra separar a venda rápida da comanda com nome de gente —
+// não existe coluna de tipo no banco.
+function ehBalcao(cli) {
+  return !!cli && typeof cli.nome === 'string' && cli.nome.startsWith('Balcão ')
+}
+
 function Relatorio({ consumos, cervejas = [], pagas = [], abertas = [], perdas = [] }) {
   const [periodo, setPeriodo] = useState('hoje')
   const [dia, setDia] = useState(hojeISO) // dia escolhido no calendário (modo 'dia')
@@ -3768,8 +3775,16 @@ function Relatorio({ consumos, cervejas = [], pagas = [], abertas = [], perdas =
     return m
   }, [consumos])
 
+  // mapa id → comanda (as pagas dos últimos 30d + as abertas agora). Serve pra
+  // saber de ONDE veio cada venda e como ela foi paga.
+  const clientePorId = useMemo(() => {
+    const m = new Map()
+    for (const c of pagas) m.set(c.id, c)
+    for (const c of abertas) m.set(c.id, c)
+    return m
+  }, [pagas, abertas])
+
   // caixa: quanto ENTROU no período (comandas pagas) + o que está aberto AGORA.
-  // Só o total — o cliente não separa por dinheiro/pix/cartão.
   const caixa = useMemo(() => {
     const { inicio, fim } = janelaPeriodo(periodo, dia)
     let recebido = 0
@@ -3779,10 +3794,29 @@ function Relatorio({ consumos, cervejas = [], pagas = [], abertas = [], perdas =
       if (t0 < inicio || t0 > fim) continue
       recebido += totalPorCliente.get(p.id) || 0
     }
+    // Comanda deixada pronta pro freguês de todo dia (Alemão, Pedro) fica aberta
+    // e zerada. Ela NÃO é "sem pagar" — senão o dono lê 5 devendo quando são 2.
     let emAberto = 0
-    for (const a of abertas) emAberto += totalPorCliente.get(a.id) || 0
-    return { recebido, emAberto, nAberto: abertas.length }
+    let nAberto = 0
+    let nEsperando = 0
+    for (const a of abertas) {
+      const t = totalPorCliente.get(a.id) || 0
+      emAberto += t
+      if (t > 0) nAberto++
+      else nEsperando++
+    }
+    return { recebido, emAberto, nAberto, nEsperando }
   }, [pagas, abertas, totalPorCliente, periodo, dia])
+
+  // Quem está devendo agora, com nome — o "3 comandas sem pagar" vira lista.
+  const devendo = useMemo(
+    () =>
+      abertas
+        .map((c) => ({ id: c.id, nome: c.nome, total: totalPorCliente.get(c.id) || 0 }))
+        .filter((c) => c.total > 0)
+        .sort((a, b) => b.total - a.total),
+    [abertas, totalPorCliente]
+  )
 
   // custo unitário por nome-de-produto (só dos que têm custo cadastrado no Estoque)
   const custoPorNome = useMemo(() => {
@@ -3809,11 +3843,20 @@ function Relatorio({ consumos, cervejas = [], pagas = [], abertas = [], perdas =
     let itensComCusto = 0
     const comandas = new Set()
     const porProduto = new Map()
+    // de onde saiu cada venda: comanda com nome ou venda rápida no balcão
+    const origem = {
+      comanda: { fat: 0, itens: 0, vendas: new Set() },
+      balcao: { fat: 0, itens: 0, vendas: new Set() },
+    }
     for (const c of noPeriodo) {
       const val = Number(c.preco_unit) * c.quantidade
       faturamento += val
       itens += c.quantidade
       comandas.add(c.cliente_id)
+      const o = ehBalcao(clientePorId.get(c.cliente_id)) ? origem.balcao : origem.comanda
+      o.fat += val
+      o.itens += c.quantidade
+      o.vendas.add(c.cliente_id)
       const cu = custoPorNome.get(c.beer_nome)
       if (cu != null) {
         custoTotal += cu * c.quantidade
@@ -3838,9 +3881,13 @@ function Relatorio({ consumos, cervejas = [], pagas = [], abertas = [], perdas =
       lucroParcial: itensComCusto < itens, // nem todo item tem custo → lucro é de parte
       ranking,
       maxQtd: ranking.reduce((m, p) => Math.max(m, p.qtd), 0),
+      origem: {
+        comanda: { ...origem.comanda, vendas: origem.comanda.vendas.size },
+        balcao: { ...origem.balcao, vendas: origem.balcao.vendas.size },
+      },
       vazio: noPeriodo.length === 0,
     }
-  }, [consumos, custoPorNome, periodo, dia])
+  }, [consumos, custoPorNome, clientePorId, periodo, dia])
 
   // Perdas do período — bloco à parte (NUNCA entra no faturamento/venda)
   const perdasResumo = useMemo(() => {
@@ -3918,8 +3965,29 @@ function Relatorio({ consumos, cervejas = [], pagas = [], abertas = [], perdas =
               <strong className="kpi-val">{dados.nComandas}</strong>
             </div>
             <div className="kpi">
-              <span className="kpi-lbl">Ticket médio</span>
+              <span className="kpi-lbl">Média por comanda</span>
               <strong className="kpi-val">{money(dados.ticket)}</strong>
+              <span className="caixa-sub">quanto cada uma gastou, em média</span>
+            </div>
+          </div>
+
+          <h3 className="sec">🛒 De onde veio</h3>
+          <div className="rel-kpis">
+            <div className="kpi">
+              <span className="kpi-lbl">🧾 Comanda</span>
+              <strong className="kpi-val">{money(dados.origem.comanda.fat)}</strong>
+              <span className="caixa-sub">
+                {dados.origem.comanda.vendas} comanda
+                {dados.origem.comanda.vendas === 1 ? '' : 's'} · {dados.origem.comanda.itens} un.
+              </span>
+            </div>
+            <div className="kpi">
+              <span className="kpi-lbl">⚡ Venda rápida</span>
+              <strong className="kpi-val">{money(dados.origem.balcao.fat)}</strong>
+              <span className="caixa-sub">
+                {dados.origem.balcao.vendas} venda{dados.origem.balcao.vendas === 1 ? '' : 's'} ·{' '}
+                {dados.origem.balcao.itens} un.
+              </span>
             </div>
           </div>
           {dados.temCusto && dados.lucroParcial && (
@@ -3943,10 +4011,27 @@ function Relatorio({ consumos, cervejas = [], pagas = [], abertas = [], perdas =
                 <strong className="kpi-val">{money(caixa.emAberto)}</strong>
                 <span className="caixa-sub">
                   {caixa.nAberto} comanda{caixa.nAberto === 1 ? '' : 's'} sem pagar
+                  {caixa.nEsperando > 0 &&
+                    ` · ${caixa.nEsperando} pronta${caixa.nEsperando === 1 ? '' : 's'} esperando`}
                 </span>
+                {devendo.length > 0 && (
+                  <div className="caixa-formas">
+                    {devendo.map((c) => (
+                      <div key={c.id} className="cf-linha">
+                        <span>{c.nome}</span>
+                        <b>{money(c.total)}</b>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
           </div>
+          <p className="rel-nota">
+            <b>Faturamento</b> é tudo que saiu no período, pago ou não.{' '}
+            <b>Recebido</b> é só o dinheiro que já entrou — comanda ainda aberta
+            não conta aqui, ela aparece em "Em aberto agora".
+          </p>
 
           <h3 className="sec">Mais vendidos</h3>
           <div className="rel-ranking">
