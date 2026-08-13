@@ -538,26 +538,25 @@ export default function App({ distribuidora = null, onSair = null }) {
     registrar('renomear_cliente', `Renomeou "${antes}" → "${nome}"`, { id: cliente_id, antes })
   }
 
-  // Ao sair de uma comanda (‹ Voltar): faxina pedida pelo lojista.
-  //  - vazia (aberta e nada pedido) → some.
+  // Ao sair de uma comanda (‹ Voltar):
   //  - totalmente paga (dividida e quitada) → fecha (sai da lista de abertas).
-  //  - senão, continua aberta normalmente.
+  //  - senão, continua aberta — inclusive vazia.
+  //
+  // Comanda vazia FICA, de propósito: o dono deixa o card dos fregueses de
+  // todo dia (Alemão, Pedro) pronto de manhã e só lança quando eles chegam.
+  // Antes ela era apagada aqui ("faxina"); agora nome digitado errado sai
+  // no "✕ Excluir" da própria comanda, que pede confirmação, registra no
+  // histórico e dá pra desfazer.
   async function sairDaComanda() {
     const id = abertoId
     setAbertoId(null)
     setBusca('')
     if (!id) return
-    const cons = consumos.filter((c) => c.cliente_id === id)
     const total = resumo[id]?.total || 0
     const pagoP = parciais
       .filter((p) => p.cliente_id === id)
       .reduce((s, p) => s + Number(p.valor || 0), 0)
-    if (cons.length === 0 && pagoP <= 0.009) {
-      await supabase.from('clientes').delete().eq('id', id)
-      setClientes((cs) => cs.filter((c) => c.id !== id))
-    } else if (total > 0 && total - pagoP <= 0.009) {
-      fecharConta(id)
-    }
+    if (total > 0 && total - pagoP <= 0.009) fecharConta(id)
   }
 
   // VENDA DE BALCÃO (venda rápida): "pediu, pagou e levou". Não abre comanda com
