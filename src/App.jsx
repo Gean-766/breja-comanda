@@ -2967,8 +2967,10 @@ function AbaCozinha({ cervejas, setCervejas, consumos, setConsumos, clientes, on
 const CATEGORIAS_ESTOQUE = [
   { id: 'cerveja', label: 'Cerveja', icone: '🍺', kw: ['cerveja', 'chopp', 'brahma', 'skol', 'antarctica', 'original', 'bohemia', 'heineken', 'amstel', 'budweiser', 'stella', 'spaten', 'eisenbahn', 'itaipava', 'petra', 'devassa', 'kaiser', 'schin', 'serramalte', 'bavaria', 'corona', 'becks', 'patagonia', 'imperio', 'colorado', 'praya', 'caracu', 'polar', 'therezopolis', 'baden', 'lokal', 'long neck', 'litrao', 'latao', 'pilsen', 'malte'] },
   { id: 'refri', label: 'Refrigerante', icone: '🥤', kw: ['refri', 'refrigerante', 'coca', 'guarana', 'fanta', 'sprite', 'pepsi', 'kuat', 'schweppes', 'dolly', 'sukita', 'soda', 'tubaina', 'h2oh'] },
-  { id: 'energetico', label: 'Energético', icone: '⚡', kw: ['energetico', 'energy', 'red bull', 'redbull', 'monster', 'tnt', 'fusion', 'baly', 'red horse', 'burn'] },
-  { id: 'agua', label: 'Água', icone: '💧', kw: ['agua', 'água', 'bonafont', 'indaia', 'minalba', 'crystal', 'h2o', 'h20', 'gatorade'] },
+  // isotônico (Gatorade/Powerade) fica aqui, não na Água: é assim que o dono
+  // compra e pede — junto de Red Bull e Monster, não junto de água mineral.
+  { id: 'energetico', label: 'Energético', icone: '⚡', kw: ['energetico', 'energy', 'red bull', 'redbull', 'monster', 'tnt', 'fusion', 'baly', 'red horse', 'burn', 'isotonico', 'gatorade', 'powerade'] },
+  { id: 'agua', label: 'Água', icone: '💧', kw: ['agua', 'água', 'bonafont', 'indaia', 'minalba', 'crystal', 'h2o', 'h20'] },
   { id: 'suco', label: 'Suco', icone: '🧃', kw: ['suco', 'kapo', 'delvale', 'del valle', 'todinho', 'nectar'] },
   { id: 'salgadinho', label: 'Salgadinho', icone: '🍟', kw: ['salgad', 'ruffles', 'doritos', 'cheetos', 'torcida', 'torresmo', 'pururuca', 'sanditos', 'fandangos', 'batata', 'amendoim'] },
   { id: 'dose', label: 'Dose', icone: '🥃', kw: ['dose', 'whisky', 'whiskey', 'red label', 'old par', 'cavalo branco', 'velho barreiro', 'compare', 'cachaca', 'vodka', 'gin ', 'conhaque'] },
@@ -2990,9 +2992,23 @@ function pastaDe(c) {
   const cat = CATEGORIAS_ESTOQUE.find((x) => x.id === categoriaDe(c.nome))
   return cat ? cat.label : 'Outros'
 }
+// Pasta criada pelo lojista (nome livre, fora das conhecidas) também ganha
+// ícone — numa lista de 10 pastas o desenho é o que o olho acha primeiro.
+// O que não bater com nada fica com a etiqueta genérica.
+const ICONES_PASTA = {
+  'refri lata': '🥫',
+  'refri pet': '🧴',
+  'refri retornavel': '♻️',
+  'comprar': '🛒',
+  'doses': '🥃',
+  'porcoes': '🍢',
+  'gelo': '🧊',
+  'cigarro': '🚬',
+}
 function iconePasta(label) {
   const known = CATEGORIAS_ESTOQUE.find((c) => c.label === label)
-  return known ? known.icone : '🏷️'
+  if (known) return known.icone
+  return ICONES_PASTA[normalizar(label)] || '🏷️'
 }
 
 // Agrupa em pastas. É a MESMA divisão nos três lugares que mostram produto —
