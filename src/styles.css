@@ -2576,6 +2576,10 @@ input[type='number'] {
 .caixa-aberto {
   border-left: 5px solid var(--card2);
 }
+/* gaveta do dia: fundo de troco + o que entrou em dinheiro */
+.caixa-gaveta {
+  border-left: 5px solid var(--accent);
+}
 .caixa-formas {
   margin-top: 8px;
   padding-top: 10px;
@@ -2643,8 +2647,16 @@ input[type='number'] {
   font-weight: 900;
   margin-bottom: 4px;
 }
+/* 4 formas em 2×2: numa linha só elas ficariam finas demais pro dedo */
+.pag-como {
+  text-align: center;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--muted);
+}
 .pag-formas {
-  display: flex;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
   gap: 10px;
 }
 .pag-forma {
@@ -3011,6 +3023,36 @@ input[type='number'] {
   font-weight: 800;
 }
 .pm.on {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--accent-dark);
+}
+/* forma de pagamento de cada parte (conta dividida) — mesma pegada do .pm */
+.parte-formas {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.parte-formas-lbl {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--muted);
+}
+.forma-chips {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.forma-chip {
+  padding: 11px 8px;
+  border: 2px solid var(--card2);
+  border-radius: 12px;
+  background: var(--bg);
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 800;
+}
+.forma-chip.on {
   border-color: var(--accent);
   background: var(--accent);
   color: var(--accent-dark);

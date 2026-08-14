@@ -79,17 +79,28 @@ const MODULOS = {
 }
 const ORDEM_MODULOS = ['estoque', 'relatorio', 'cozinha']
 
-// formas de pagamento: a chave (id) é o que fica salvo em clientes.forma_pagamento;
-// o rótulo/ícone é só pra tela. Comanda antiga (sem forma) vira "• Outro".
+// formas de pagamento: a chave (id) é o que fica salvo em clientes.forma_pagamento
+// (comanda e venda rápida) e em pagamentos_parciais.forma (conta dividida).
+// O rótulo/ícone é só pra tela.
 const FORMAS_PAGAMENTO = [
   { id: 'dinheiro', label: 'Dinheiro', icone: '💵' },
   { id: 'pix', label: 'Pix', icone: '⚡' },
-  { id: 'cartao', label: 'Cartão', icone: '💳' },
+  { id: 'credito', label: 'Crédito', icone: '💳' },
+  { id: 'debito', label: 'Débito', icone: '🏧' },
 ]
+// Venda fechada na época em que existia só "Cartão" (sem separar crédito de
+// débito) continua legível no Relatório em vez de cair no monte do "Outro".
+const FORMAS_ANTIGAS = { cartao: { label: 'Cartão', icone: '💳' } }
+const formaDe = (id) => FORMAS_PAGAMENTO.find((f) => f.id === id) || FORMAS_ANTIGAS[id] || null
 const rotuloForma = (id) => {
-  const f = FORMAS_PAGAMENTO.find((x) => x.id === id)
+  const f = formaDe(id)
   return f ? `${f.icone} ${f.label}` : '• Outro'
 }
+
+// Dinheiro que fica na gaveta todo dia só pra dar troco. No fim do dia o que
+// tem que estar lá é: esse fundo + as vendas em dinheiro. É o que deixa o dono
+// conferir a gaveta sem fazer conta.
+const FUNDO_TROCO = 150
 
 // `distribuidora` e `onSair` vêm do Portao.jsx (quem já passou pelo login).
 // O RLS do banco já isola os dados por distribuidora; os filtros por
@@ -168,16 +179,24 @@ export default function App({ distribuidora = null, onSair = null }) {
       setPerdas(rperdas.error ? [] : rperdas.data || [])
     }
 
-    // Conta dividida: pagamentos parciais das comandas ainda abertas. Fica à
-    // parte (fora do Promise.all) pra não derrubar o resto se a tabela ainda
-    // não existir no banco — o app degrada sozinho até rodar o SQL.
+    // Conta dividida: pagamentos parciais. São dois recortes — as comandas ainda
+    // ABERTAS (a tela da mesa precisa delas, por mais velha que seja a comanda)
+    // e, com o Relatório ligado, os últimos 30 dias: o caixa precisa saber por
+    // qual forma cada parte entrou, inclusive de comanda já fechada. Fica à parte
+    // (fora do Promise.all) pra não derrubar o resto se a tabela ainda não
+    // existir no banco — o app degrada sozinho até rodar o SQL.
     const abertosIds = (c2.data || []).map((c) => c.id)
+    const baldes = []
     if (abertosIds.length) {
-      const rpp = await meu(supabase.from('pagamentos_parciais').select('*')).in('cliente_id', abertosIds)
-      setParciais(rpp.error ? [] : rpp.data || [])
-    } else {
-      setParciais([])
+      baldes.push(await meu(supabase.from('pagamentos_parciais').select('*')).in('cliente_id', abertosIds))
     }
+    if (abasExtra.includes('relatorio')) {
+      const desdeMes = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()
+      baldes.push(await meu(supabase.from('pagamentos_parciais').select('*')).gte('created_at', desdeMes))
+    }
+    const parciaisPorId = new Map()
+    for (const b of baldes) for (const p of b.error ? [] : b.data || []) parciaisPorId.set(p.id, p)
+    setParciais([...parciaisPorId.values()])
 
     // Relatório precisa das comandas JÁ PAGAS pra montar o "recebido" (as abertas
     // já vêm em `clientes`). Últimos 30 dias — bate com o maior período do relatório.
@@ -493,7 +512,7 @@ export default function App({ distribuidora = null, onSair = null }) {
     if (cli)
       registrar(
         'fechar_cliente',
-        `Fechou/pagou a comanda de ${cli.nome} (${money(r.total)}${forma ? ' · ' + forma : ''})`,
+        `Fechou/pagou a comanda de ${cli.nome} (${money(r.total)}${forma ? ' · ' + rotuloForma(forma) : ''})`,
         { cliente: cli }
       )
   }
@@ -562,16 +581,22 @@ export default function App({ distribuidora = null, onSair = null }) {
   // VENDA DE BALCÃO (venda rápida): "pediu, pagou e levou". Não abre comanda com
   // nome — cria uma comanda já FECHADA na hora com os itens. Assim o estoque baixa
   // e o relatório conta, exatamente como qualquer venda, sem trabalho extra.
-  async function venderBalcao(itens) {
+  async function venderBalcao(itens, forma = null) {
     if (!itens?.length) return
     const nome = 'Balcão ' + hora(Date.now())
     const pago_em = new Date().toISOString()
-    const { data: cli, error } = await supabase
+    // tenta gravar a forma; se a coluna ainda não existe no banco, vende sem ela
+    // (a venda nunca trava por causa de um SQL que ainda não rodou)
+    let ins = await supabase
       .from('clientes')
-      .insert({ nome, aberto: false, pago_em })
+      .insert({ nome, aberto: false, pago_em, forma_pagamento: forma })
       .select()
       .single()
-    if (error || !cli) {
+    if (ins.error && /forma_pagamento/i.test(ins.error.message || '')) {
+      ins = await supabase.from('clientes').insert({ nome, aberto: false, pago_em }).select().single()
+    }
+    const cli = ins.data
+    if (ins.error || !cli) {
       erro('⚠️ Não consegui registrar a venda. Sem conexão?')
       return
     }
@@ -586,24 +611,31 @@ export default function App({ distribuidora = null, onSair = null }) {
     setPagas((ps) => [{ ...cli }, ...ps]) // caixa "recebido" reflete na hora
     const total = linhas.reduce((s, r) => s + Number(r.preco_unit) * r.quantidade, 0)
     setBalcaoAberto(false)
-    registrar('venda_balcao', `Venda de balcão (${money(total)})`, { cliente: cli })
+    registrar(
+      'venda_balcao',
+      `Venda de balcão (${money(total)}${forma ? ' · ' + rotuloForma(forma) : ''})`,
+      { cliente: cli }
+    )
     mostrarToast('Venda de balcão registrada ✓', { tipo: 'ok' })
   }
 
   // CONTA DIVIDIDA: registra o quanto um amigo pagou (por garrafa ou por valor).
   // A mesa continua aberta mostrando "Falta pagar" até quitar tudo.
-  async function pagarParte(cliente_id, valor, qtd = null, itens = null) {
+  async function pagarParte(cliente_id, valor, qtd = null, itens = null, forma = null) {
     const v = Number(valor) || 0
     if (v <= 0) return
     // guarda QUAIS garrafas foram pagas (no obs, em JSON) — assim a garrafa já paga
     // some da lista de "escolher garrafas" e o verde/vermelho do movimento bate.
     const obs = itens && itens.length ? JSON.stringify(itens) : null
-    const { data, error } = await supabase
-      .from('pagamentos_parciais')
-      .insert({ cliente_id, valor: v, qtd, obs })
-      .select()
-      .single()
-    if (error || !data) {
+    const linha = { cliente_id, valor: v, qtd, obs }
+    // cada parte guarda a SUA forma: um amigo paga em dinheiro, outro no pix, e
+    // o caixa continua batendo. Se a coluna ainda não existe, recebe sem ela.
+    let ins = await supabase.from('pagamentos_parciais').insert({ ...linha, forma }).select().single()
+    if (ins.error && /forma/i.test(ins.error.message || '')) {
+      ins = await supabase.from('pagamentos_parciais').insert(linha).select().single()
+    }
+    const data = ins.data
+    if (ins.error || !data) {
       erro('⚠️ Ative a conta dividida: rode o SQL "conta-dividida" no Supabase.')
       return
     }
@@ -611,7 +643,7 @@ export default function App({ distribuidora = null, onSair = null }) {
     const cli = clientes.find((c) => c.id === cliente_id)
     registrar(
       'pagar_parte',
-      `Pagou parte: ${money(v)}${cli ? ' — ' + cli.nome : ''}`,
+      `Pagou parte: ${money(v)}${forma ? ' · ' + rotuloForma(forma) : ''}${cli ? ' — ' + cli.nome : ''}`,
       { parcial: data }
     )
     mostrarToast(`Recebido ${money(v)} ✓`, { tipo: 'ok' })
@@ -758,6 +790,7 @@ export default function App({ distribuidora = null, onSair = null }) {
             pagas={pagas}
             abertas={clientes}
             perdas={perdas}
+            parciais={parciais}
           />
         ) : aba === 'estoque' ? (
           <AbaEstoque
@@ -942,6 +975,7 @@ function Detalhe({ cliente, cervejas, consumos, resumo, parciais = [], onAdd, on
   const [modoParte, setModoParte] = useState('garrafa') // 'garrafa' | 'valor'
   const [selGarrafas, setSelGarrafas] = useState({}) // {beer_nome: qtd escolhida}
   const [valorParte, setValorParte] = useState('')
+  const [formaParte, setFormaParte] = useState('dinheiro') // como ESSE amigo pagou
   const [pessoas, setPessoas] = useState(0) // dividir a conta entre N pessoas (modo valor)
   const [dividirN, setDividirN] = useState(1) // calculadora "dividir" na tela da mesa
 
@@ -1128,6 +1162,7 @@ function Detalhe({ cliente, cervejas, consumos, resumo, parciais = [], onAdd, on
     setSelGarrafas({})
     setValorParte('')
     setModoParte('garrafa')
+    setFormaParte('dinheiro')
     setPessoas(0)
     setExcesso(null)
   }
@@ -1141,14 +1176,14 @@ function Detalhe({ cliente, cervejas, consumos, resumo, parciais = [], onAdd, on
       setExcesso({ valor, qtd, itens })
       return
     }
-    onPagarParte(cliente.id, valor, qtd, itens)
+    onPagarParte(cliente.id, valor, qtd, itens, formaParte)
     const zerou = resumo.total - (pago + valor) <= 0.009
     fecharParte()
     if (zerou) setConfPagto(true) // quitou → já oferece encerrar a comanda
   }
   function confirmarExcesso() {
     if (!excesso) return
-    onPagarParte(cliente.id, excesso.valor, excesso.qtd, excesso.itens)
+    onPagarParte(cliente.id, excesso.valor, excesso.qtd, excesso.itens, formaParte)
     fecharParte()
     setConfPagto(true) // recebeu o resto (ou mais) → oferece encerrar
   }
@@ -1157,6 +1192,24 @@ function Detalhe({ cliente, cervejas, consumos, resumo, parciais = [], onAdd, on
     if (n && n !== cliente.nome) onRenomear(cliente.id, n)
     setEditNome(false)
   }
+
+  // a linha de forma de pagamento aparece igual nos dois modos do "pagar parte"
+  const chipsForma = (
+    <div className="parte-formas">
+      <span className="parte-formas-lbl">Como esse pagou?</span>
+      <div className="forma-chips">
+        {FORMAS_PAGAMENTO.map((f) => (
+          <button
+            key={f.id}
+            className={'forma-chip' + (formaParte === f.id ? ' on' : '')}
+            onClick={() => setFormaParte(f.id)}
+          >
+            {f.icone} {f.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  )
 
   // o mesmo card serve dentro da pasta e no resultado da busca
   const cardProduto = (c) => {
@@ -1510,9 +1563,29 @@ function Detalhe({ cliente, cervejas, consumos, resumo, parciais = [], onAdd, on
                 Já pago {money(pago)} · Total {money(resumo.total)}
               </span>
             ) : null}
-            <button className="pag-confirmar" onClick={() => onFechar(cliente.id)}>
-              {quitado ? '✓ Encerrar comanda' : '✓ Confirmar pagamento'}
-            </button>
+            {quitado ? (
+              // já foi tudo recebido em partes, cada uma com a sua forma:
+              // aqui não entra dinheiro nenhum, é só encerrar
+              <button className="pag-confirmar" onClick={() => onFechar(cliente.id)}>
+                ✓ Encerrar comanda
+              </button>
+            ) : (
+              <>
+                <span className="pag-como">Como pagou?</span>
+                <div className="pag-formas">
+                  {FORMAS_PAGAMENTO.map((f) => (
+                    <button
+                      key={f.id}
+                      className="pag-forma"
+                      onClick={() => onFechar(cliente.id, f.id)}
+                    >
+                      <span className="pag-forma-ic">{f.icone}</span>
+                      {f.label}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
             <button className="pag-cancelar" onClick={() => setConfPagto(false)}>
               Cancelar
             </button>
@@ -1574,6 +1647,7 @@ function Detalhe({ cliente, cervejas, consumos, resumo, parciais = [], onAdd, on
                     )
                   })}
                 </div>
+                {chipsForma}
                 <button
                   className="parte-confirmar"
                   disabled={somaGarrafas <= 0}
@@ -1622,6 +1696,7 @@ function Detalhe({ cliente, cervejas, consumos, resumo, parciais = [], onAdd, on
                     setValorParte(e.target.value)
                   }}
                 />
+                {chipsForma}
                 <button
                   className="parte-confirmar"
                   disabled={!(valorDigitado > 0)}
@@ -2068,9 +2143,19 @@ function VendaBalcao({ cervejas, onVender, onVoltar }) {
                 </div>
               ))}
             </div>
-            <button className="pag-confirmar" onClick={() => onVender(itensCarrinho)}>
-              ✓ Confirmar venda
-            </button>
+            <span className="pag-como">Como pagou?</span>
+            <div className="pag-formas">
+              {FORMAS_PAGAMENTO.map((f) => (
+                <button
+                  key={f.id}
+                  className="pag-forma"
+                  onClick={() => onVender(itensCarrinho, f.id)}
+                >
+                  <span className="pag-forma-ic">{f.icone}</span>
+                  {f.label}
+                </button>
+              ))}
+            </div>
             <button className="pag-cancelar" onClick={() => setConfVenda(false)}>
               Cancelar
             </button>
@@ -3941,7 +4026,65 @@ function ehBalcao(cli) {
   return !!cli && typeof cli.nome === 'string' && cli.nome.startsWith('Balcão ')
 }
 
-function Relatorio({ consumos, cervejas = [], pagas = [], abertas = [], perdas = [] }) {
+// CAIXA de um período: o dinheiro que entrou, por forma, e o que falta receber.
+// Fica aqui fora, pura, porque é a parte que TEM que estar certa — é ela que diz
+// quanto precisa estar na gaveta no fim do dia.
+//
+// O dinheiro entra em DOIS momentos, cada um com a sua forma:
+//   1. cada parte da conta dividida (um amigo no pix, outro em dinheiro), na
+//      hora em que foi paga — mesmo que a comanda continue aberta;
+//   2. o que sobrou, na hora de fechar a comanda (e a venda rápida, que já
+//      nasce fechada).
+// Somar os dois é o que faz a divisão por forma bater com o total recebido.
+function calcularCaixa({ pagas, abertas, parciais, totalPorCliente, parcialPorCliente, inicio, fim }) {
+  const dentro = (ts) => {
+    const t = new Date(ts).getTime()
+    return t >= inicio && t <= fim
+  }
+  const porForma = new Map()
+  let recebido = 0
+  const somar = (forma, v) => {
+    if (v <= 0.009) return
+    recebido += v
+    porForma.set(forma || null, (porForma.get(forma || null) || 0) + v)
+  }
+  for (const p of parciais) {
+    if (dentro(p.created_at)) somar(p.forma, Number(p.valor || 0))
+  }
+  for (const c of pagas) {
+    if (!c.pago_em || !dentro(c.pago_em)) continue
+    // o que já entrou em partes foi contado acima, no dia em que entrou
+    const resto = (totalPorCliente.get(c.id) || 0) - (parcialPorCliente.get(c.id) || 0)
+    somar(c.forma_pagamento, resto)
+  }
+
+  // Comanda deixada pronta pro freguês de todo dia (Alemão, Pedro) fica aberta
+  // e zerada. Ela NÃO é "sem pagar" — senão o dono lê 5 devendo quando são 2.
+  let emAberto = 0
+  let nAberto = 0
+  let nEsperando = 0
+  for (const a of abertas) {
+    const total = totalPorCliente.get(a.id) || 0
+    const falta = Math.max(0, total - (parcialPorCliente.get(a.id) || 0))
+    emAberto += falta
+    if (total <= 0.009) nEsperando++
+    else if (falta > 0.009) nAberto++
+  }
+
+  // na ordem dos botões da tela; forma desconhecida (ou nenhuma) cai no fim
+  const ordem = FORMAS_PAGAMENTO.map((f) => f.id)
+  const formas = [...porForma.entries()]
+    .map(([id, valor]) => ({ id, valor }))
+    .sort((a, b) => {
+      const ia = ordem.indexOf(a.id)
+      const ib = ordem.indexOf(b.id)
+      if (ia !== -1 || ib !== -1) return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib)
+      return b.valor - a.valor
+    })
+  return { recebido, emAberto, nAberto, nEsperando, formas, dinheiro: porForma.get('dinheiro') || 0 }
+}
+
+function Relatorio({ consumos, cervejas = [], pagas = [], abertas = [], perdas = [], parciais = [] }) {
   const [periodo, setPeriodo] = useState('hoje')
   const [dia, setDia] = useState(hojeISO) // dia escolhido no calendário (modo 'dia')
 
@@ -3962,38 +4105,41 @@ function Relatorio({ consumos, cervejas = [], pagas = [], abertas = [], perdas =
     return m
   }, [pagas, abertas])
 
-  // caixa: quanto ENTROU no período (comandas pagas) + o que está aberto AGORA.
+  // quanto de cada comanda já entrou em partes (conta dividida)
+  const parcialPorCliente = useMemo(() => {
+    const m = new Map()
+    for (const p of parciais)
+      m.set(p.cliente_id, (m.get(p.cliente_id) || 0) + Number(p.valor || 0))
+    return m
+  }, [parciais])
+
+  // CAIXA do período (ver calcularCaixa, logo acima do Relatório)
   const caixa = useMemo(() => {
     const { inicio, fim } = janelaPeriodo(periodo, dia)
-    let recebido = 0
-    for (const p of pagas) {
-      if (!p.pago_em) continue
-      const t0 = new Date(p.pago_em).getTime()
-      if (t0 < inicio || t0 > fim) continue
-      recebido += totalPorCliente.get(p.id) || 0
-    }
-    // Comanda deixada pronta pro freguês de todo dia (Alemão, Pedro) fica aberta
-    // e zerada. Ela NÃO é "sem pagar" — senão o dono lê 5 devendo quando são 2.
-    let emAberto = 0
-    let nAberto = 0
-    let nEsperando = 0
-    for (const a of abertas) {
-      const t = totalPorCliente.get(a.id) || 0
-      emAberto += t
-      if (t > 0) nAberto++
-      else nEsperando++
-    }
-    return { recebido, emAberto, nAberto, nEsperando }
-  }, [pagas, abertas, totalPorCliente, periodo, dia])
+    return calcularCaixa({
+      pagas,
+      abertas,
+      parciais,
+      totalPorCliente,
+      parcialPorCliente,
+      inicio,
+      fim,
+    })
+  }, [pagas, abertas, parciais, totalPorCliente, parcialPorCliente, periodo, dia])
 
   // Quem está devendo agora, com nome — o "3 comandas sem pagar" vira lista.
+  // É o que FALTA: o que o amigo já pagou em parte não pode aparecer como dívida.
   const devendo = useMemo(
     () =>
       abertas
-        .map((c) => ({ id: c.id, nome: c.nome, total: totalPorCliente.get(c.id) || 0 }))
-        .filter((c) => c.total > 0)
+        .map((c) => ({
+          id: c.id,
+          nome: c.nome,
+          total: Math.max(0, (totalPorCliente.get(c.id) || 0) - (parcialPorCliente.get(c.id) || 0)),
+        }))
+        .filter((c) => c.total > 0.009)
         .sort((a, b) => b.total - a.total),
-    [abertas, totalPorCliente]
+    [abertas, totalPorCliente, parcialPorCliente]
   )
 
   // custo unitário por nome-de-produto (só dos que têm custo cadastrado no Estoque)
@@ -4182,7 +4328,40 @@ function Relatorio({ consumos, cervejas = [], pagas = [], abertas = [], perdas =
                 {periodo === 'dia' ? `Recebido em ${diaBonito(dia)}` : 'Recebido no período'}
               </span>
               <strong className="kpi-val">{money(caixa.recebido)}</strong>
+              {caixa.formas.length > 0 && (
+                <div className="caixa-formas">
+                  {caixa.formas.map((f) => (
+                    <div key={f.id || 'outro'} className="cf-linha">
+                      <span>{rotuloForma(f.id)}</span>
+                      <b>{money(f.valor)}</b>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
+
+            {/* Gaveta: só faz sentido num dia (o troco é reposto todo dia; numa
+                janela de 7/30 dias esse fundo apareceria repetido). */}
+            {(periodo === 'hoje' || periodo === 'dia') && (
+              <div className="caixa-card caixa-gaveta">
+                <span className="kpi-lbl">💵 Tem que ter na gaveta</span>
+                <strong className="kpi-val">{money(FUNDO_TROCO + caixa.dinheiro)}</strong>
+                <div className="caixa-formas">
+                  <div className="cf-linha">
+                    <span>Troco que começa o dia</span>
+                    <b>{money(FUNDO_TROCO)}</b>
+                  </div>
+                  <div className="cf-linha">
+                    <span>Vendas em dinheiro</span>
+                    <b>{money(caixa.dinheiro)}</b>
+                  </div>
+                </div>
+                <span className="caixa-sub">
+                  Conte a gaveta no fim do dia: sobrando ou faltando, a diferença é
+                  erro de troco.
+                </span>
+              </div>
+            )}
             {periodo !== 'dia' && (
               <div className="caixa-card caixa-aberto">
                 <span className="kpi-lbl">Em aberto agora</span>
@@ -4207,8 +4386,9 @@ function Relatorio({ consumos, cervejas = [], pagas = [], abertas = [], perdas =
           </div>
           <p className="rel-nota">
             <b>Faturamento</b> é tudo que saiu no período, pago ou não.{' '}
-            <b>Recebido</b> é só o dinheiro que já entrou — comanda ainda aberta
-            não conta aqui, ela aparece em "Em aberto agora".
+            <b>Recebido</b> é o dinheiro que entrou de verdade — contando também a
+            parte que um amigo já pagou numa comanda que continua aberta. O que
+            ainda falta receber está em "Em aberto agora".
           </p>
 
           <h3 className="sec">Mais vendidos</h3>
