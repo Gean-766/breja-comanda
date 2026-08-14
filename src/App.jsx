@@ -929,7 +929,8 @@ function Detalhe({ cliente, cervejas, consumos, resumo, parciais = [], onAdd, on
   const [editNome, setEditNome] = useState(false) // editando o nome da comanda
   const [nomeEdit, setNomeEdit] = useState('')
   const [buscaProd, setBuscaProd] = useState('')
-  const [mostrarTodos, setMostrarTodos] = useState(false)
+  const [pastaProd, setPastaProd] = useState(null) // pasta aberta na hora de lançar
+  const [buscaPasta, setBuscaPasta] = useState('') // busca dentro da pasta aberta
   const [ultimoTocado, setUltimoTocado] = useState(null) // só p/ a animação
   const [mostrarResumo, setMostrarResumo] = useState(false)
   const [confirmar, setConfirmar] = useState(null) // produto aguardando confirmação
@@ -950,6 +951,7 @@ function Detalhe({ cliente, cervejas, consumos, resumo, parciais = [], onAdd, on
     onAdd(cliente.id, c, qtd)
     setQtd(1)
     setBuscaProd('') // ao selecionar, limpa a busca
+    setBuscaPasta('') // (a pasta continua aberta: costuma vir outra rodada dali)
     setUltimoTocado(c.id)
   }
 
@@ -970,14 +972,23 @@ function Detalhe({ cliente, cervejas, consumos, resumo, parciais = [], onAdd, on
     })
   }, [cervejas, consumos])
 
+  const casa = (c, termo) =>
+    normalizar(c.nome).includes(termo) || normalizar(reprDe(c)).includes(termo)
+
+  // busca de fora: varre TODOS os produtos e mostra o resultado solto (sem pasta)
   const q = normalizar(buscaProd)
-  const filtrados = q
-    ? ordenados.filter(
-        (c) => normalizar(c.nome).includes(q) || normalizar(reprDe(c)).includes(q)
-      )
-    : ordenados
-  const expandido = !!q || mostrarTodos
-  const visiveis = expandido ? filtrados : filtrados.slice(0, 3)
+  const filtrados = q ? ordenados.filter((c) => casa(c, q)) : ordenados
+
+  // sem busca, o lançamento começa pelas pastas — abre "Cerveja" e a preferida
+  // já está no topo (a ordem dentro da pasta é a por recência do `ordenados`)
+  const pastas = useMemo(() => agruparEmPastas(ordenados), [ordenados])
+  const pastaFoco = pastaProd ? pastas.find((p) => p.label === pastaProd) : null
+  const qp = normalizar(buscaPasta)
+  const itensPasta = !pastaFoco
+    ? []
+    : qp
+      ? pastaFoco.itens.filter((c) => casa(c, qp))
+      : pastaFoco.itens
 
   // se a busca não achou nada, tenta corrigir pelo nome dos produtos cadastrados
   const nomesProdutos = useMemo(
@@ -1147,6 +1158,34 @@ function Detalhe({ cliente, cervejas, consumos, resumo, parciais = [], onAdd, on
     setEditNome(false)
   }
 
+  // o mesmo card serve dentro da pasta e no resultado da busca
+  const cardProduto = (c) => {
+    const cor = corDe(c.nome, c.cor)
+    return (
+      <button
+        key={c.id}
+        className={'prod-card' + (ultimoTocado === c.id ? ' destaque' : '')}
+        style={{ background: cor.bg, color: cor.fg }}
+        onClick={() => setConfirmar(c)}
+      >
+        {c.foto && (
+          <img
+            className="pc-foto"
+            src={c.foto}
+            alt=""
+            loading="lazy"
+            onError={(e) => { e.currentTarget.style.display = 'none' }}
+          />
+        )}
+        <span className="pc-nome">{c.nome}</span>
+        <span className="pc-info">
+          {c.tamanho && <span className="pc-tam">{c.tamanho}</span>}
+          <span className="pc-preco">{money(c.preco)}</span>
+        </span>
+      </button>
+    )
+  }
+
   return (
     <div className="overlay">
       <div className="detalhe">
@@ -1217,86 +1256,119 @@ function Detalhe({ cliente, cervejas, consumos, resumo, parciais = [], onAdd, on
           <button onClick={() => setQtd((q) => q + 1)}>+</button>
         </div>
 
-        <div className="busca-wrap busca-prod">
-          <input
-            className="campo busca"
-            placeholder="🔎 Procurar produto…"
-            value={buscaProd}
-            onChange={(e) => setBuscaProd(e.target.value)}
-          />
-          {buscaProd && (
-            <button
-              className="busca-x"
-              onClick={() => setBuscaProd('')}
-              aria-label="Limpar busca"
-            >
-              ✕
-            </button>
-          )}
-        </div>
+        {pastaFoco ? (
+          /* ---- dentro da pasta: só os produtos dela ---- */
+          <>
+            <div className="est-nav prod-nav">
+              <button
+                className="est-voltar"
+                onClick={() => {
+                  setPastaProd(null)
+                  setBuscaPasta('')
+                }}
+              >
+                ‹ Voltar
+              </button>
+              <span className="est-nav-tit">
+                {pastaFoco.icone} {pastaFoco.label}
+              </span>
+            </div>
 
-        <div className="lista-prod">
-          {filtrados.length === 0 &&
-            (sugBusca ? (
-              <div className="sug-marca">
-                <span className="tam-label">🤔 Você quis dizer?</span>
-                <div className="chips">
-                  {sugBusca.nomes.map((m) => (
+            {pastaFoco.itens.length > 5 && (
+              <div className="busca-wrap busca-prod">
+                <input
+                  className="campo busca"
+                  placeholder={`🔎 Buscar em ${pastaFoco.label}…`}
+                  value={buscaPasta}
+                  onChange={(e) => setBuscaPasta(e.target.value)}
+                />
+                {buscaPasta && (
+                  <button
+                    className="busca-x"
+                    onClick={() => setBuscaPasta('')}
+                    aria-label="Limpar busca"
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
+            )}
+
+            <div className="lista-prod">
+              {itensPasta.length === 0 && (
+                <p className="vazio">Nenhum produto com “{buscaPasta}” nessa pasta.</p>
+              )}
+              {itensPasta.map(cardProduto)}
+            </div>
+          </>
+        ) : (
+          /* ---- pastas (ou, se estiver buscando, o resultado solto) ---- */
+          <>
+            <div className="busca-wrap busca-prod">
+              <input
+                className="campo busca"
+                placeholder="🔎 Procurar produto…"
+                value={buscaProd}
+                onChange={(e) => setBuscaProd(e.target.value)}
+              />
+              {buscaProd && (
+                <button
+                  className="busca-x"
+                  onClick={() => setBuscaProd('')}
+                  aria-label="Limpar busca"
+                >
+                  ✕
+                </button>
+              )}
+            </div>
+
+            <div className="lista-prod">
+              {q ? (
+                filtrados.length > 0 ? (
+                  filtrados.map(cardProduto)
+                ) : sugBusca ? (
+                  <div className="sug-marca">
+                    <span className="tam-label">🤔 Você quis dizer?</span>
+                    <div className="chips">
+                      {sugBusca.nomes.map((m) => (
+                        <button
+                          key={m}
+                          className="chip chip-sug"
+                          onClick={() => setBuscaProd(m)}
+                        >
+                          {m}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  <p className="vazio">Nenhum produto encontrado.</p>
+                )
+              ) : pastas.length === 0 ? (
+                <p className="vazio">Nenhum produto cadastrado. Vá em "Produtos".</p>
+              ) : (
+                <div className="est-folders">
+                  {pastas.map((p) => (
                     <button
-                      key={m}
-                      className="chip chip-sug"
-                      onClick={() => setBuscaProd(m)}
+                      key={p.label}
+                      className="est-folder"
+                      onClick={() => setPastaProd(p.label)}
                     >
-                      {m}
+                      <span className="est-folder-ic">{p.icone}</span>
+                      <div className="est-folder-txt">
+                        <span className="est-folder-nome">{p.label}</span>
+                        <span className="est-folder-sub">
+                          {p.itens.length} produto{p.itens.length === 1 ? '' : 's'}
+                        </span>
+                      </div>
+                      <span className="est-folder-seta">›</span>
                     </button>
                   ))}
                 </div>
-              </div>
-            ) : (
-              <p className="vazio">
-                {q
-                  ? 'Nenhum produto encontrado.'
-                  : 'Nenhum produto cadastrado. Vá em "Produtos".'}
-              </p>
-            ))}
-          {visiveis.map((c) => {
-            const cor = corDe(c.nome, c.cor)
-            return (
-              <button
-                key={c.id}
-                className={'prod-card' + (ultimoTocado === c.id ? ' destaque' : '')}
-                style={{ background: cor.bg, color: cor.fg }}
-                onClick={() => setConfirmar(c)}
-              >
-                {c.foto && (
-                  <img
-                    className="pc-foto"
-                    src={c.foto}
-                    alt=""
-                    loading="lazy"
-                    onError={(e) => { e.currentTarget.style.display = 'none' }}
-                  />
-                )}
-                <span className="pc-nome">{c.nome}</span>
-                <span className="pc-info">
-                  {c.tamanho && <span className="pc-tam">{c.tamanho}</span>}
-                  <span className="pc-preco">{money(c.preco)}</span>
-                </span>
-              </button>
-            )
-          })}
-
-          {!expandido && filtrados.length > 3 && (
-            <button className="ver-mais" onClick={() => setMostrarTodos(true)}>
-              Ver mais produtos ({filtrados.length - 3}) ▾
-            </button>
-          )}
-          {mostrarTodos && !q && filtrados.length > 3 && (
-            <button className="ver-mais" onClick={() => setMostrarTodos(false)}>
-              Ver menos ▴
-            </button>
-          )}
-        </div>
+              )}
+            </div>
+          </>
+        )}
 
         <div className="historico">
           {consumos.length === 0 && <p className="vazio">Ainda nada lançado.</p>}
@@ -1742,20 +1814,61 @@ function Detalhe({ cliente, cervejas, consumos, resumo, parciais = [], onAdd, on
 function VendaBalcao({ cervejas, onVender, onVoltar }) {
   const [carrinho, setCarrinho] = useState({}) // {cervejaId: qtd}
   const [busca, setBusca] = useState('')
+  const [pastaProd, setPastaProd] = useState(null) // pasta aberta (mesma do Cadastro)
+  const [buscaPasta, setBuscaPasta] = useState('') // busca dentro da pasta aberta
   const [confVenda, setConfVenda] = useState(false) // confirmação antes de fechar a venda
   const [dividirN, setDividirN] = useState(1) // dividir a venda entre N pessoas (caixinha)
 
+  const reprDe = (c) => (c.tamanho ? `${c.nome} ${c.tamanho}` : c.nome)
+  const casa = (c, termo) =>
+    normalizar(c.nome).includes(termo) || normalizar(reprDe(c)).includes(termo)
+
+  // busca de fora varre tudo e mostra solto; sem busca, entra pelas pastas
   const q = normalizar(busca)
-  const filtrados = q
-    ? cervejas.filter(
-        (c) =>
-          normalizar(c.nome).includes(q) ||
-          normalizar(c.tamanho ? `${c.nome} ${c.tamanho}` : c.nome).includes(q)
-      )
-    : cervejas
+  const filtrados = q ? cervejas.filter((c) => casa(c, q)) : cervejas
+
+  const pastas = useMemo(() => agruparEmPastas(cervejas), [cervejas])
+  const pastaFoco = pastaProd ? pastas.find((p) => p.label === pastaProd) : null
+  const qp = normalizar(buscaPasta)
+  const itensPasta = !pastaFoco
+    ? []
+    : qp
+      ? pastaFoco.itens.filter((c) => casa(c, qp))
+      : pastaFoco.itens
 
   function add(c) {
     setCarrinho((k) => ({ ...k, [c.id]: (k[c.id] || 0) + 1 }))
+  }
+  // o mesmo card serve dentro da pasta e no resultado da busca
+  const cardProduto = (c) => {
+    const cor = corDe(c.nome, c.cor)
+    const n = carrinho[c.id] || 0
+    return (
+      <button
+        key={c.id}
+        className={'prod-card' + (n ? ' destaque' : '')}
+        style={{ background: cor.bg, color: cor.fg }}
+        onClick={() => add(c)}
+      >
+        {c.foto && (
+          <img
+            className="pc-foto"
+            src={c.foto}
+            alt=""
+            loading="lazy"
+            onError={(e) => { e.currentTarget.style.display = 'none' }}
+          />
+        )}
+        <span className="pc-nome">
+          {c.nome}
+          {n > 0 && <span className="pc-badge">{n}</span>}
+        </span>
+        <span className="pc-info">
+          {c.tamanho && <span className="pc-tam">{c.tamanho}</span>}
+          <span className="pc-preco">{money(c.preco)}</span>
+        </span>
+      </button>
+    )
   }
   function mudar(id, delta) {
     setCarrinho((k) => {
@@ -1786,53 +1899,107 @@ function VendaBalcao({ cervejas, onVender, onVoltar }) {
           <span className="balcao-dica">Toque nos produtos e aperte Vender — sem abrir comanda.</span>
         </header>
 
-        <div className="busca-wrap busca-prod">
-          <input
-            className="campo busca"
-            placeholder="🔎 Procurar produto…"
-            value={busca}
-            onChange={(e) => setBusca(e.target.value)}
-          />
-          {busca && (
-            <button className="busca-x" onClick={() => setBusca('')} aria-label="Limpar busca">
-              ✕
-            </button>
-          )}
-        </div>
-
-        <div className="lista-prod">
-          {filtrados.length === 0 && <p className="vazio">Nenhum produto encontrado.</p>}
-          {filtrados.map((c) => {
-            const cor = corDe(c.nome, c.cor)
-            const n = carrinho[c.id] || 0
-            return (
+        {pastaFoco ? (
+          /* ---- dentro da pasta: só os produtos dela ---- */
+          <>
+            <div className="est-nav prod-nav">
               <button
-                key={c.id}
-                className={'prod-card' + (n ? ' destaque' : '')}
-                style={{ background: cor.bg, color: cor.fg }}
-                onClick={() => add(c)}
+                className="est-voltar"
+                onClick={() => {
+                  setPastaProd(null)
+                  setBuscaPasta('')
+                }}
               >
-                {c.foto && (
-                  <img
-                    className="pc-foto"
-                    src={c.foto}
-                    alt=""
-                    loading="lazy"
-                    onError={(e) => { e.currentTarget.style.display = 'none' }}
-                  />
-                )}
-                <span className="pc-nome">
-                  {c.nome}
-                  {n > 0 && <span className="pc-badge">{n}</span>}
-                </span>
-                <span className="pc-info">
-                  {c.tamanho && <span className="pc-tam">{c.tamanho}</span>}
-                  <span className="pc-preco">{money(c.preco)}</span>
-                </span>
+                ‹ Voltar
               </button>
-            )
-          })}
-        </div>
+              <span className="est-nav-tit">
+                {pastaFoco.icone} {pastaFoco.label}
+              </span>
+            </div>
+
+            {pastaFoco.itens.length > 5 && (
+              <div className="busca-wrap busca-prod">
+                <input
+                  className="campo busca"
+                  placeholder={`🔎 Buscar em ${pastaFoco.label}…`}
+                  value={buscaPasta}
+                  onChange={(e) => setBuscaPasta(e.target.value)}
+                />
+                {buscaPasta && (
+                  <button
+                    className="busca-x"
+                    onClick={() => setBuscaPasta('')}
+                    aria-label="Limpar busca"
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
+            )}
+
+            <div className="lista-prod">
+              {itensPasta.length === 0 && (
+                <p className="vazio">Nenhum produto com “{buscaPasta}” nessa pasta.</p>
+              )}
+              {itensPasta.map(cardProduto)}
+            </div>
+          </>
+        ) : (
+          /* ---- pastas (ou, se estiver buscando, o resultado solto) ---- */
+          <>
+            <div className="busca-wrap busca-prod">
+              <input
+                className="campo busca"
+                placeholder="🔎 Procurar produto…"
+                value={busca}
+                onChange={(e) => setBusca(e.target.value)}
+              />
+              {busca && (
+                <button className="busca-x" onClick={() => setBusca('')} aria-label="Limpar busca">
+                  ✕
+                </button>
+              )}
+            </div>
+
+            <div className="lista-prod">
+              {q ? (
+                filtrados.length > 0 ? (
+                  filtrados.map(cardProduto)
+                ) : (
+                  <p className="vazio">Nenhum produto encontrado.</p>
+                )
+              ) : pastas.length === 0 ? (
+                <p className="vazio">Nenhum produto cadastrado.</p>
+              ) : (
+                <div className="est-folders">
+                  {pastas.map((p) => {
+                    // quantas unidades dessa pasta já estão no carrinho
+                    const noCarrinho = p.itens.reduce((s, c) => s + (carrinho[c.id] || 0), 0)
+                    return (
+                      <button
+                        key={p.label}
+                        className="est-folder"
+                        onClick={() => setPastaProd(p.label)}
+                      >
+                        <span className="est-folder-ic">{p.icone}</span>
+                        <div className="est-folder-txt">
+                          <span className="est-folder-nome">{p.label}</span>
+                          <span className="est-folder-sub">
+                            {p.itens.length} produto{p.itens.length === 1 ? '' : 's'}
+                          </span>
+                        </div>
+                        {noCarrinho > 0 && (
+                          <span className="pasta-cart">{noCarrinho} no carrinho</span>
+                        )}
+                        <span className="est-folder-seta">›</span>
+                      </button>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+          </>
+        )}
 
         <div className="historico">
           {itensCarrinho.length === 0 && <p className="vazio">Carrinho vazio.</p>}
@@ -2606,6 +2773,31 @@ function iconePasta(label) {
   return known ? known.icone : '🏷️'
 }
 
+// Agrupa em pastas. É a MESMA divisão nos três lugares que mostram produto —
+// Cadastro/Estoque, comanda e venda rápida: cerveja com cerveja, refri com refri.
+// As pastas conhecidas vêm na ordem oficial; as criadas pelo lojista entram
+// depois, em ordem alfabética. A ordem DENTRO da pasta é a da lista que chegou
+// (na comanda, o último lançado fica no topo — a "preferida" à mão).
+//   pegaProduto: pra listas que embrulham o produto (o Estoque manda {c, saldo…})
+//   extras: pastas que aparecem mesmo vazias (as que o lojista acabou de criar)
+function agruparEmPastas(itens, pegaProduto = (x) => x, extras = []) {
+  const map = new Map()
+  for (const it of itens) {
+    const lbl = pastaDe(pegaProduto(it))
+    if (!map.has(lbl)) map.set(lbl, [])
+    map.get(lbl).push(it)
+  }
+  for (const lbl of extras) if (!map.has(lbl)) map.set(lbl, [])
+  const ordemConhecida = CATEGORIAS_ESTOQUE.map((c) => c.label)
+  const labels = [...map.keys()].sort((a, b) => {
+    const ia = ordemConhecida.indexOf(a)
+    const ib = ordemConhecida.indexOf(b)
+    if (ia !== -1 || ib !== -1) return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib)
+    return a.localeCompare(b)
+  })
+  return labels.map((label) => ({ label, icone: iconePasta(label), itens: map.get(label) }))
+}
+
 function AbaEstoque({ cervejas, setCervejas, entradas, setEntradas, consumos, perdas = [], setPerdas, onErro, onLog }) {
   const [abertoId, setAbertoId] = useState(null)
   const [vista, setVista] = useState('estoque') // 'estoque' (visão geral) | 'cadastro' | 'perdas'
@@ -2803,29 +2995,15 @@ function AbaEstoque({ cervejas, setCervejas, entradas, setEntradas, consumos, pe
     return lista.filter((it) => normalizar(reprDe(it.c)).includes(q))
   }, [lista, busca])
 
-  // pastas por label (as que têm produto + as criadas na sessão), com alertas.
-  // Conhecidas na ordem oficial; pastas criadas pelo lojista, depois, alfabético.
-  const pastas = useMemo(() => {
-    const map = new Map()
-    for (const it of lista) {
-      const lbl = pastaDe(it.c)
-      if (!map.has(lbl)) map.set(lbl, [])
-      map.get(lbl).push(it)
-    }
-    for (const lbl of pastasCustom) if (!map.has(lbl)) map.set(lbl, [])
-    const ordemConhecida = CATEGORIAS_ESTOQUE.map((c) => c.label)
-    const labels = [...map.keys()].sort((a, b) => {
-      const ia = ordemConhecida.indexOf(a)
-      const ib = ordemConhecida.indexOf(b)
-      if (ia !== -1 || ib !== -1) return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib)
-      return a.localeCompare(b)
-    })
-    return labels.map((label) => {
-      const itens = map.get(label)
-      const alertas = itens.filter((i) => i.nivel === 'zero' || i.nivel === 'baixo').length
-      return { label, icone: iconePasta(label), itens, alertas }
-    })
-  }, [lista, pastasCustom])
+  // pastas por label (as que têm produto + as criadas na sessão), com alertas
+  const pastas = useMemo(
+    () =>
+      agruparEmPastas(lista, (it) => it.c, pastasCustom).map((p) => ({
+        ...p,
+        alertas: p.itens.filter((i) => i.nivel === 'zero' || i.nivel === 'baixo').length,
+      })),
+    [lista, pastasCustom]
+  )
 
   async function salvarCampo(c, campo, valor) {
     const txt = String(valor).trim()
