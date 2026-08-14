@@ -42,6 +42,7 @@ begin
     ('Gatorade uva', '/produtos/gatorade-uva.png'),
     ('Gatorade limão', '/produtos/gatorade-limao.png'),
     ('Fanta uva lata 310ml', '/produtos/fanta-uva-lata-310ml.png'),
+    ('Fanta carmesim 310ml', '/produtos/fanta-carmesim-310ml.png'),
     ('Coca zero lata 310 ml', '/produtos/coca-zero-lata-310ml.png'),
     ('Pepsi zero lata 350ml', '/produtos/pepsi-zero-lata-350ml.png'),
     ('Guaraná zero 350 ml', '/produtos/guarana-zero-350ml.png'),
@@ -78,8 +79,8 @@ begin
 end $$;
 
 -- ============================================================================
---  CONFERÊNCIA — quem AINDA está sem foto (o esperado é sobrar só a Fanta
---  carmesim, que veio sem imagem própria)
+--  CONFERÊNCIA — quem AINDA está sem foto (o esperado agora é NENHUM produto:
+--  a Fanta carmesim, que faltava, chegou depois e entrou na lista acima)
 -- ============================================================================
 select coalesce(categoria, '—') as pasta, nome
   from public.cervejas
