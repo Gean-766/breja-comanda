@@ -2952,6 +2952,49 @@ function agruparEmPastas(itens, pegaProduto = (x) => x, extras = []) {
   return labels.map((label) => ({ label, icone: iconePasta(label), itens: map.get(label) }))
 }
 
+// ---------- foto do produto: câmera ou galeria do celular ----------
+// O balde do Storage onde as fotos ficam. Roda supabase/foto-produto.sql uma
+// vez pra criá-lo; sem isso o upload falha e o app avisa (nada mais quebra).
+const BUCKET_FOTOS = 'produtos'
+
+// Foto de celular chega com 3–5 MB. Antes de subir, encolhe: 600px no maior
+// lado, JPEG. Fica em ~50 KB — sobe rápido no wifi do bar, não come a franquia
+// de quem está no 4G e é de sobra pro tamanho que o card mostra.
+async function encolherImagem(file, max = 600) {
+  try {
+    const bitmap = await createImageBitmap(file)
+    const escala = Math.min(1, max / Math.max(bitmap.width, bitmap.height))
+    const w = Math.round(bitmap.width * escala)
+    const h = Math.round(bitmap.height * escala)
+    const canvas = document.createElement('canvas')
+    canvas.width = w
+    canvas.height = h
+    canvas.getContext('2d').drawImage(bitmap, 0, 0, w, h)
+    const blob = await new Promise((r) => canvas.toBlob(r, 'image/jpeg', 0.82))
+    if (!blob) throw new Error('sem blob')
+    return { blob, tipo: 'image/jpeg', ext: 'jpg' }
+  } catch (_) {
+    // celular que não sabe encolher sobe a foto original mesmo
+    return {
+      blob: file,
+      tipo: file.type || 'image/jpeg',
+      ext: (file.name?.split('.').pop() || 'jpg').toLowerCase(),
+    }
+  }
+}
+
+// sobe e devolve o endereço público — é ele que vai na coluna `foto`
+async function subirFoto(file, cervejaId) {
+  const { blob, tipo, ext } = await encolherImagem(file)
+  const caminho = `${cervejaId}/${Date.now()}.${ext}`
+  const { error } = await supabase.storage
+    .from(BUCKET_FOTOS)
+    .upload(caminho, blob, { contentType: tipo })
+  if (error) throw error
+  const { data } = supabase.storage.from(BUCKET_FOTOS).getPublicUrl(caminho)
+  return data.publicUrl
+}
+
 // ---------- sub-pastas: o segundo nível (Cerveja → 600ml, Lata, Long neck) ----
 // A sub-pasta sai da coluna `subcategoria`. Produto SEM sub-pasta fica solto
 // dentro da pasta, de propósito: pasta pequena (Dose, Suco) não ganha um nível
@@ -3030,6 +3073,13 @@ function AbaEstoque({ cervejas, setCervejas, entradas, setEntradas, consumos, pe
   const [subAberta, setSubAberta] = useState(null) // sub-pasta em foco (2º nível)
   const [novoSub, setNovoSub] = useState(null) // em qual sub-pasta o form está cadastrando
   const [pastasCustom, setPastasCustom] = useState([]) // pastas criadas nesta sessão
+  const [subsCustom, setSubsCustom] = useState([]) // sub-pastas criadas nesta sessão
+  const [ovAberto, setOvAberto] = useState(null) // card aberto na visão geral
+  const [soRepor, setSoRepor] = useState(false) // filtro: só o que precisa repor
+  const [nFoto, setNFoto] = useState(null) // foto escolhida no cadastro (só sobe ao salvar)
+  const [nFotoPrev, setNFotoPrev] = useState('') // miniatura dela na tela
+  const [salvando, setSalvando] = useState(false) // salvando produto (a foto demora)
+  const [fotoSubindo, setFotoSubindo] = useState(null) // id do produto cuja foto está subindo
   const reprDe = (c) => (c.tamanho ? `${c.nome} ${c.tamanho}` : c.nome)
 
   function abrirForm(pasta, sub = null) {
@@ -3042,21 +3092,59 @@ function AbaEstoque({ cervejas, setCervejas, entradas, setEntradas, consumos, pe
     setNCusto('')
     setNAviso('')
     setNModo('caixas')
+    setNFoto(null)
+    setNFotoPrev('')
     setPastaAberta(pasta) // entra na pasta (e na sub-pasta) pra cadastrar dentro
     setSubAberta(sub)
   }
+  // Pasta e sub-pasta recém-criadas só ENTRAM nelas — quem decide o que vem
+  // depois é ele: criar mais uma sub-pasta ou cadastrar o primeiro produto.
+  // (Antes caía direto no formulário e não dava pra montar a estrutura antes.)
   function novaPasta() {
-    const nome = (prompt('Nome da nova pasta (ex: Doses, Porções, Gelo):') || '').trim()
+    const nome = (prompt('Nome da nova pasta (ex: Castanha, Porções, Gelo):') || '').trim()
     if (!nome) return
     if (!pastasCustom.includes(nome)) setPastasCustom((p) => [...p, nome])
-    abrirForm(nome) // já abre o form pra cadastrar o 1º produto dessa pasta
+    setNovoPasta(null)
+    setNovoSub(null)
+    setPastaAberta(nome)
+    setSubAberta(null)
+    setBuscaPasta('')
   }
-  // sub-pasta nasce junto com o primeiro produto dela — não existe pasta vazia
-  // no banco, o que a cria é o produto que aponta pra ela.
   function novaSubPasta() {
     const nome = (prompt('Nome da sub-pasta (ex: 600ml, Lata, Lata zero):') || '').trim()
     if (!nome) return
-    abrirForm(pastaAberta, nome)
+    // pasta vazia não existe no banco (o que a cria é o produto que aponta pra
+    // ela), então as recém-criadas ficam guardadas aqui até ganharem o primeiro
+    if (!subsCustom.some((s) => s.pasta === pastaAberta && s.sub === nome))
+      setSubsCustom((s) => [...s, { pasta: pastaAberta, sub: nome }])
+    setNovoPasta(null)
+    setNovoSub(null)
+    setSubAberta(nome)
+    setBuscaPasta('')
+  }
+
+  // foto escolhida no formulário: só mostra a miniatura agora; sobe no Salvar
+  // (se subisse já, uma foto de produto que ele desistiu de criar ficaria órfã)
+  function escolherFotoNova(file) {
+    if (!file) return
+    setNFoto(file)
+    setNFotoPrev(URL.createObjectURL(file))
+  }
+
+  // troca a foto de um produto que já existe
+  async function trocarFoto(c, file) {
+    if (!file) return
+    setFotoSubindo(c.id)
+    try {
+      const url = await subirFoto(file, c.id)
+      const { error } = await supabase.from('cervejas').update({ foto: url }).eq('id', c.id)
+      if (error) throw error
+      setCervejas((cs) => cs.map((x) => (x.id === c.id ? { ...x, foto: url } : x)))
+    } catch (_) {
+      onErro('⚠️ Não consegui subir a foto. Rodou o SQL "foto-produto" no Supabase?')
+    } finally {
+      setFotoSubindo(null)
+    }
   }
 
   // cria o produto (aparece na hora nas comandas e no cadastro) e, se você
@@ -3111,7 +3199,24 @@ function AbaEstoque({ cervejas, setCervejas, entradas, setEntradas, consumos, pe
     }
     const prod = res.data
     if (res.error || !prod) return onErro('⚠️ Não consegui salvar o produto. Tente de novo.')
-    setCervejas((cs) => [...cs, prod])
+
+    // a foto sobe depois do produto existir (o endereço dela usa o id dele).
+    // Se falhar, o produto fica salvo assim mesmo — foto é o acessório, não o
+    // que ele veio fazer aqui.
+    let salvo = prod
+    if (nFoto) {
+      setSalvando(true)
+      try {
+        const url = await subirFoto(nFoto, prod.id)
+        await supabase.from('cervejas').update({ foto: url }).eq('id', prod.id)
+        salvo = { ...prod, foto: url }
+      } catch (_) {
+        onErro('Produto salvo, mas a foto não subiu. Dá pra tentar de novo no card dele.')
+      } finally {
+        setSalvando(false)
+      }
+    }
+    setCervejas((cs) => [...cs, salvo])
     onLog?.('add_produto', `Adicionou produto: ${nome}`, { ids: [prod.id] })
 
     if (unidades > 0) {
@@ -3129,6 +3234,8 @@ function AbaEstoque({ cervejas, setCervejas, entradas, setEntradas, consumos, pe
     setNCusto('')
     setNAviso('')
     setNModo('caixas')
+    setNFoto(null)
+    setNFotoPrev('')
     setNovoPasta(null)
     setNovoSub(null)
   }
@@ -3315,6 +3422,8 @@ function AbaEstoque({ cervejas, setCervejas, entradas, setEntradas, consumos, pe
       onRemoverEntrada={removerEntrada}
       onExcluir={() => excluirProduto(it.c)}
       onRenomear={() => renomear(it.c)}
+      onFoto={trocarFoto}
+      subindoFoto={fotoSubindo === it.c.id}
     />
   )
 
@@ -3401,9 +3510,22 @@ function AbaEstoque({ cervejas, setCervejas, entradas, setEntradas, consumos, pe
         />
       </label>
 
+      {/* sem `capture`: assim o celular deixa escolher entre a câmera e a galeria */}
+      <label className="est-novo-linha est-foto-linha">
+        <span>Foto do produto</span>
+        <span className="est-foto-esc">
+          {nFotoPrev ? (
+            <img src={nFotoPrev} alt="" />
+          ) : (
+            <span className="est-foto-txt">📷 Tirar ou escolher</span>
+          )}
+          <input type="file" accept="image/*" onChange={(e) => escolherFotoNova(e.target.files?.[0])} />
+        </span>
+      </label>
+
       <div className="est-novo-acoes">
-        <button className="btn-grande" onClick={criarProduto}>
-          ✓ Salvar
+        <button className="btn-grande" onClick={criarProduto} disabled={salvando}>
+          {salvando ? 'Salvando…' : '✓ Salvar'}
         </button>
         <button className="est-cancelar" onClick={() => { setNovoPasta(null); setNovoSub(null) }}>
           Cancelar
@@ -3414,9 +3536,14 @@ function AbaEstoque({ cervejas, setCervejas, entradas, setEntradas, consumos, pe
 
   const pastaFoco = pastaAberta ? pastas.find((p) => p.label === pastaAberta) : null
   // dentro da pasta: as sub-pastas dela e os produtos que não estão em nenhuma
-  const { subs, soltos } = pastaFoco
+  const { subs: subsComItens, soltos } = pastaFoco
     ? dividirEmSubPastas(pastaFoco.itens, (it) => it.c)
     : { subs: [], soltos: [] }
+  // + as recém-criadas, que ainda não têm produto (só existem nesta sessão)
+  const subs = [...subsComItens]
+  for (const s of subsCustom)
+    if (s.pasta === pastaAberta && !subs.some((x) => x.label === s.sub))
+      subs.push({ label: s.sub, icone: iconeSub(s.sub), itens: [] })
   const subFoco = subAberta ? subs.find((s) => s.label === subAberta) : null
   // a busca varre o nível em que você está (a pasta inteira ou só a sub-pasta)
   const itensFoco = subFoco ? subFoco.itens : pastaFoco ? pastaFoco.itens : []
@@ -3506,8 +3633,12 @@ function AbaEstoque({ cervejas, setCervejas, entradas, setEntradas, consumos, pe
             Nenhum produto com “{buscaPasta}” nessa pasta.
           </p>
         )}
-        {itensFoco.length === 0 && novoPasta !== pastaAberta && (
-          <p className="est-pasta-vazia">Pasta vazia — adicione o primeiro produto.</p>
+        {itensFoco.length === 0 && (subFoco || subs.length === 0) && novoPasta !== pastaAberta && (
+          <p className="est-pasta-vazia">
+            {subAberta
+              ? 'Sub-pasta vazia — adicione o primeiro produto.'
+              : 'Pasta vazia — crie uma sub-pasta ou adicione o primeiro produto.'}
+          </p>
         )}
 
         {novoPasta === pastaAberta && novoSub === (subAberta || null) ? (
@@ -3532,8 +3663,13 @@ function AbaEstoque({ cervejas, setCervejas, entradas, setEntradas, consumos, pe
   }
 
   // ---------- TOPO: Meu estoque (visão geral) | Cadastrar | Perdas ----------
-  const overviewRows = busca.trim() ? listaFiltrada : lista
-  const nRepor = lista.filter((i) => i.nivel === 'zero' || i.nivel === 'baixo').length
+  // A lista já vem na ordem que importa: acabou primeiro, acabando depois, o
+  // que está em estoque lá embaixo (ver o `rank` em `lista`). O filtro corta
+  // fora tudo que não precisa de compra.
+  const precisaRepor = (i) => i.nivel === 'zero' || i.nivel === 'baixo'
+  const overviewBase = busca.trim() ? listaFiltrada : lista
+  const overviewRows = soRepor ? overviewBase.filter(precisaRepor) : overviewBase
+  const nRepor = lista.filter(precisaRepor).length
   const totalUn = lista.reduce((s, it) => s + (it.controlado ? it.saldo : 0), 0)
   const statusLabel = (n) =>
     ({ zero: 'Acabou', baixo: 'Acabando', ok: 'Em estoque', novo: 'Sem contagem' }[n] || '')
@@ -3632,10 +3768,17 @@ function AbaEstoque({ cervejas, setCervejas, entradas, setEntradas, consumos, pe
                   <b>{lista.length}</b>
                   <span>produtos</span>
                 </div>
-                <div className={nRepor > 0 ? 'est-vg-repor' : ''}>
+                {/* o "pra repor" é o número que ele age em cima: vira filtro */}
+                <button
+                  className={
+                    'est-vg-btn' + (nRepor > 0 ? ' est-vg-repor' : '') + (soRepor ? ' on' : '')
+                  }
+                  onClick={() => setSoRepor((v) => !v)}
+                  disabled={nRepor === 0}
+                >
                   <b>{nRepor}</b>
-                  <span>pra repor</span>
-                </div>
+                  <span>{soRepor ? 'vendo só estes ✕' : 'pra repor'}</span>
+                </button>
                 <div>
                   <b>{totalUn}</b>
                   <span>unidades</span>
@@ -3643,7 +3786,9 @@ function AbaEstoque({ cervejas, setCervejas, entradas, setEntradas, consumos, pe
               </div>
             )}
             {overviewRows.length === 0 ? (
-              <p className="vazio">Nenhum produto com esse nome.</p>
+              <p className="vazio">
+                {soRepor ? 'Nada pra repor. 👍' : 'Nenhum produto com esse nome.'}
+              </p>
             ) : (
               <div className="est-ov-lista">
                 {overviewRows.map((it) => {
@@ -3657,9 +3802,14 @@ function AbaEstoque({ cervejas, setCervejas, entradas, setEntradas, consumos, pe
                         : `${resto} un`
                       : null
                   const valor = it.saldo * (Number(it.c.preco) || 0)
+                  const aberto = ovAberto === it.c.id
                   return (
                     <div key={it.c.id} className={'est-ov-card est-ovc-' + it.nivel}>
-                      <div className="est-ov-top">
+                      {/* primeira visão: só o que interessa de longe */}
+                      <button
+                        className="est-ov-top"
+                        onClick={() => setOvAberto((id) => (id === it.c.id ? null : it.c.id))}
+                      >
                         <span className={'est-vg-status est-' + it.nivel} />
                         {it.c.foto && (
                           <img
@@ -3682,32 +3832,36 @@ function AbaEstoque({ cervejas, setCervejas, entradas, setEntradas, consumos, pe
                           </b>
                           <small>un.</small>
                         </div>
-                      </div>
-                      {it.controlado ? (
-                        <div className="est-ov-stats">
-                          {caixaTxt && <span className="est-ov-chip">📦 {caixaTxt}</span>}
-                          <span className="est-ov-chip">📥 entrou {it.entrou}</span>
-                          <span className="est-ov-chip">📤 saiu {it.saiu}</span>
-                          {it.perdidas > 0 && (
-                            <span className="est-ov-chip est-ov-chip-perda">🗑️ perdas {it.perdidas}</span>
-                          )}
-                          {Number(it.c.preco) > 0 && (
-                            <span className="est-ov-chip">🏷️ {money(it.c.preco)}</span>
-                          )}
-                          {valor > 0 && (
-                            <span className="est-ov-chip est-ov-chip-forte">
-                              💰 {money(valor)} em estoque
-                            </span>
-                          )}
-                          {it.min > 0 && (
-                            <span className="est-ov-chip">🔔 avisa ≤ {it.min}</span>
-                          )}
-                        </div>
-                      ) : (
-                        <p className="est-ov-semctrl">
-                          Sem contagem — faça no <b>✏️ Cadastrar</b>
-                        </p>
-                      )}
+                        <span className="est-ov-seta">{aberto ? '▾' : '›'}</span>
+                      </button>
+
+                      {/* o resto só quando ele pede */}
+                      {aberto &&
+                        (it.controlado ? (
+                          <div className="est-ov-stats">
+                            {caixaTxt && <span className="est-ov-chip">📦 {caixaTxt}</span>}
+                            <span className="est-ov-chip">📥 entrou {it.entrou}</span>
+                            <span className="est-ov-chip">📤 saiu {it.saiu}</span>
+                            {it.perdidas > 0 && (
+                              <span className="est-ov-chip est-ov-chip-perda">🗑️ perdas {it.perdidas}</span>
+                            )}
+                            {Number(it.c.preco) > 0 && (
+                              <span className="est-ov-chip">🏷️ {money(it.c.preco)}</span>
+                            )}
+                            {valor > 0 && (
+                              <span className="est-ov-chip est-ov-chip-forte">
+                                💰 {money(valor)} em estoque
+                              </span>
+                            )}
+                            {it.min > 0 && (
+                              <span className="est-ov-chip">🔔 avisa ≤ {it.min}</span>
+                            )}
+                          </div>
+                        ) : (
+                          <p className="est-ov-semctrl">
+                            Sem contagem — faça no <b>✏️ Cadastrar</b>
+                          </p>
+                        ))}
                     </div>
                   )
                 })}
@@ -3934,7 +4088,7 @@ function AbaEstoque({ cervejas, setCervejas, entradas, setEntradas, consumos, pe
   )
 }
 
-function EstoqueCard({ it, aberto, onAbrir, onCampo, onAbastecer, onRemoverEntrada, onExcluir, onRenomear }) {
+function EstoqueCard({ it, aberto, onAbrir, onCampo, onAbastecer, onRemoverEntrada, onExcluir, onRenomear, onFoto, subindoFoto }) {
   const { c, controlado, entrou, saiu, saldo, custoUnit, nivel, ents } = it
   // começa em "unidades" enquanto não houver unid/caixa (assim o 1º uso — a
   // contagem inicial — funciona na hora); com caixa configurada, vai pra "caixas"
@@ -4047,6 +4201,29 @@ function EstoqueCard({ it, aberto, onAbrir, onCampo, onAbastecer, onRemoverEntra
               </p>
             )}
           </div>
+
+          {/* ---- Foto ---- */}
+          {onFoto && (
+            <div className="est-secao">
+              <span className="est-secao-tit">📷 Foto do produto</span>
+              <label className="est-foto-troca">
+                {c.foto ? (
+                  <img src={c.foto} alt="" onError={(e) => { e.currentTarget.style.display = 'none' }} />
+                ) : (
+                  <span className="est-foto-vazia">sem foto</span>
+                )}
+                <span className="est-foto-acao">
+                  {subindoFoto ? 'enviando…' : c.foto ? 'Trocar foto' : '📷 Tirar ou escolher'}
+                </span>
+                <input
+                  type="file"
+                  accept="image/*"
+                  disabled={subindoFoto}
+                  onChange={(e) => onFoto(c, e.target.files?.[0])}
+                />
+              </label>
+            </div>
+          )}
 
           {/* ---- Preço, custo e aviso ---- */}
           <div className="est-secao">

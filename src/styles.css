@@ -2039,15 +2039,33 @@ input[type='number'] {
   gap: 10px;
   margin-bottom: 12px;
 }
-.est-vg-resumo > div {
+.est-vg-resumo > div,
+.est-vg-resumo > .est-vg-btn {
   flex: 1;
   background: var(--card);
+  border: none;
   border-radius: 12px;
   padding: 12px;
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 2px;
+  color: var(--text);
+  font-family: inherit;
+}
+/* o "pra repor" é botão: filtra a lista pro que precisa de compra */
+.est-vg-btn {
+  border: 2px solid transparent;
+}
+.est-vg-btn:disabled {
+  opacity: 0.55;
+}
+.est-vg-btn.on {
+  border-color: var(--accent);
+  background: var(--accent-dark);
+}
+.est-vg-btn.on span {
+  color: var(--accent);
 }
 .est-vg-resumo b {
   font-size: 24px;
@@ -2141,10 +2159,24 @@ input[type='number'] {
 .est-ovc-ok {
   border-left-color: var(--accent2);
 }
+/* linha de cima do card: é o botão que abre/fecha o detalhe */
 .est-ov-top {
   display: flex;
   align-items: center;
   gap: 10px;
+  width: 100%;
+  border: none;
+  background: none;
+  padding: 0;
+  color: inherit;
+  text-align: left;
+  font-family: inherit;
+}
+.est-ov-seta {
+  flex-shrink: 0;
+  color: var(--muted);
+  font-size: 20px;
+  font-weight: 700;
 }
 .est-ov-foto {
   width: 42px;
@@ -2299,6 +2331,54 @@ input[type='number'] {
   font-size: 24px;
   font-weight: 700;
 }
+/* foto do produto: escolher no cadastro e trocar no card.
+   O <input type=file> fica escondido — quem recebe o toque é o rótulo. */
+.est-foto-esc,
+.est-foto-troca {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+}
+.est-foto-esc input,
+.est-foto-troca input {
+  display: none;
+}
+.est-foto-esc img,
+.est-foto-troca img {
+  width: 54px;
+  height: 54px;
+  border-radius: 10px;
+  object-fit: contain;
+  background: var(--bg);
+  flex-shrink: 0;
+}
+.est-foto-txt,
+.est-foto-acao {
+  border: 2px dashed var(--card2);
+  border-radius: 10px;
+  padding: 9px 12px;
+  font-size: 13.5px;
+  font-weight: 800;
+  color: var(--text);
+  white-space: nowrap;
+}
+.est-foto-vazia {
+  width: 54px;
+  height: 54px;
+  border-radius: 10px;
+  background: var(--bg);
+  display: grid;
+  place-items: center;
+  font-size: 10px;
+  color: var(--muted);
+  text-align: center;
+  flex-shrink: 0;
+}
+.est-foto-linha {
+  align-items: center;
+}
+
 /* sub-pastas dentro de uma pasta (2º nível), antes dos produtos soltos */
 .est-subs {
   margin-bottom: 12px;
