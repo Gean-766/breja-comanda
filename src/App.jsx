@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { supabase, isConfigured } from './supabase.js'
 
 const money = (n) => 'R$ ' + Number(n || 0).toFixed(2).replace('.', ',')
@@ -95,6 +96,11 @@ const formaDe = (id) => FORMAS_PAGAMENTO.find((f) => f.id === id) || FORMAS_ANTI
 const rotuloForma = (id) => {
   const f = formaDe(id)
   return f ? `${f.icone} ${f.label}` : '• Outro'
+}
+// no papel do cupom o emoji sai borrado: lá vai só o nome
+const nomeForma = (id) => {
+  const f = formaDe(id)
+  return f ? f.label : 'Outro'
 }
 
 // Dinheiro que fica na gaveta todo dia só pra dar troco. No fim do dia o que
@@ -820,6 +826,7 @@ export default function App({ distribuidora = null, onSair = null }) {
       {clienteAberto && (
         <Detalhe
           cliente={clienteAberto}
+          loja={distribuidora?.nome || 'Comanda'}
           cervejas={cervejas}
           consumos={consumos.filter((co) => co.cliente_id === clienteAberto.id)}
           resumo={resumo[clienteAberto.id] || { total: 0, qtd: 0 }}
@@ -957,7 +964,7 @@ function sugerir(texto, lista) {
 
 const sugerirMarcas = (texto) => sugerir(texto, MARCAS_POPULARES)
 
-function Detalhe({ cliente, cervejas, consumos, resumo, parciais = [], onAdd, onRemove, onPagarParte, onFechar, onExcluir, onRenomear, onVoltar }) {
+function Detalhe({ cliente, loja = 'Comanda', cervejas, consumos, resumo, parciais = [], onAdd, onRemove, onPagarParte, onFechar, onExcluir, onRenomear, onVoltar }) {
   const [qtd, setQtd] = useState(1)
   const [editNome, setEditNome] = useState(false) // editando o nome da comanda
   const [nomeEdit, setNomeEdit] = useState('')
@@ -978,6 +985,7 @@ function Detalhe({ cliente, cervejas, consumos, resumo, parciais = [], onAdd, on
   const [formaParte, setFormaParte] = useState('dinheiro') // como ESSE amigo pagou
   const [pessoas, setPessoas] = useState(0) // dividir a conta entre N pessoas (modo valor)
   const [dividirN, setDividirN] = useState(1) // calculadora "dividir" na tela da mesa
+  const [impressoEm, setImpressoEm] = useState(null) // hora carimbada no cupom
 
   const reprDe = (c) => (c.tamanho ? `${c.nome} ${c.tamanho}` : c.nome)
 
@@ -1191,6 +1199,16 @@ function Detalhe({ cliente, cervejas, consumos, resumo, parciais = [], onAdd, on
     const n = nomeEdit.trim()
     if (n && n !== cliente.nome) onRenomear(cliente.id, n)
     setEditNome(false)
+  }
+
+  // Imprimir: quem monta o papel é o navegador (window.print). O cupom já está
+  // montado aqui do lado, escondido — o CSS de impressão apaga o app e deixa só
+  // ele. Assim funciona com qualquer impressora que o celular enxergue, e sem
+  // impressora vira "Salvar em PDF".
+  // O respiro antes do print é pra o React já ter pintado a hora no cupom.
+  function imprimir() {
+    setImpressoEm(Date.now())
+    setTimeout(() => window.print(), 80)
   }
 
   // a linha de forma de pagamento aparece igual nos dois modos do "pagar parte"
@@ -1486,6 +1504,9 @@ function Detalhe({ cliente, cervejas, consumos, resumo, parciais = [], onAdd, on
 
           {/* 3º — botões secundários */}
           <div className="rodape-botoes">
+            <button className="btn-resumo" onClick={imprimir} disabled={resumo.qtd === 0}>
+              🖨️ Imprimir
+            </button>
             <button
               className="btn-resumo"
               onClick={() => setMostrarResumo(true)}
@@ -1848,6 +1869,21 @@ function Detalhe({ cliente, cervejas, consumos, resumo, parciais = [], onAdd, on
         )
       })()}
 
+      {/* fica escondido na tela — só existe no papel, quando toca em Imprimir */}
+      {createPortal(
+        <CupomComanda
+          loja={loja}
+          cliente={cliente}
+          itens={resumoItens}
+          resumo={resumo}
+          parciais={parciais}
+          pago={pago}
+          falta={falta}
+          impressoEm={impressoEm}
+        />,
+        document.body
+      )}
+
       {confirmar && (() => {
         const cor = corDe(confirmar.nome, confirmar.cor)
         return (
@@ -1880,6 +1916,107 @@ function Detalhe({ cliente, cervejas, consumos, resumo, parciais = [], onAdd, on
           </div>
         )
       })()}
+    </div>
+  )
+}
+
+// ===================== Cupom de conferência =====================
+// O papel que sai na impressora térmica (bobina de 58 ou 80 mm). NÃO é documento
+// fiscal — é a conferência do dono: "essa mesa levou tanto". Na tela ele não
+// aparece; quem o traz à tona é o @media print (ver .cupom em styles.css).
+// Fica pendurado no <body> (portal) pra o CSS conseguir apagar o app inteiro e
+// deixar só ele no papel.
+function CupomComanda({ loja, cliente, itens, resumo, parciais = [], pago = 0, falta = 0, impressoEm }) {
+  // marca o body enquanto o cupom existe. É o que deixa o CSS esconder o app
+  // sem depender do seletor :has(), que celular velho pode não ter.
+  useEffect(() => {
+    document.body.classList.add('tem-cupom')
+    return () => document.body.classList.remove('tem-cupom')
+  }, [])
+
+  const dataHora = (ts) =>
+    new Date(ts).toLocaleString('pt-BR', {
+      day: '2-digit',
+      month: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+    })
+
+  // o que já entrou nesta comanda, por forma (quando a conta foi dividida)
+  const porForma = new Map()
+  for (const p of parciais)
+    porForma.set(p.forma || null, (porForma.get(p.forma || null) || 0) + Number(p.valor || 0))
+
+  return (
+    <div className="cupom">
+      <div className="cup-loja">{loja}</div>
+      <div className="cup-sub">Conferência de comanda</div>
+      <div className="cup-linha" />
+
+      <div className="cup-nome">{cliente.nome}</div>
+      <div className="cup-row cup-mini">
+        <span>Aberta</span>
+        <span>{dataHora(cliente.created_at)}</span>
+      </div>
+      {impressoEm && (
+        <div className="cup-row cup-mini">
+          <span>Impressa</span>
+          <span>{dataHora(impressoEm)}</span>
+        </div>
+      )}
+      <div className="cup-linha" />
+
+      <div className="cup-itens">
+        {itens.map((it) => (
+          <div key={it.nome} className="cup-row">
+            <span className="cup-q">{it.qtd}x</span>
+            <span className="cup-n">{it.nome}</span>
+            <span className="cup-v">{money(it.total)}</span>
+          </div>
+        ))}
+      </div>
+      <div className="cup-linha" />
+
+      <div className="cup-row cup-mini">
+        <span>Itens</span>
+        <span>{resumo.qtd}</span>
+      </div>
+      <div className="cup-row cup-total">
+        <span>TOTAL</span>
+        <span>{money(resumo.total)}</span>
+      </div>
+
+      {pago > 0.009 && (
+        <>
+          <div className="cup-linha" />
+          {[...porForma.entries()].map(([forma, valor]) => (
+            <div key={forma || 'outro'} className="cup-row cup-mini">
+              <span>Pago · {nomeForma(forma)}</span>
+              <span>{money(valor)}</span>
+            </div>
+          ))}
+          <div className="cup-row cup-total">
+            {falta > 0.009 ? (
+              <>
+                <span>FALTA</span>
+                <span>{money(falta)}</span>
+              </>
+            ) : (
+              <>
+                <span>TUDO PAGO</span>
+                <span>✓</span>
+              </>
+            )}
+          </div>
+        </>
+      )}
+
+      <div className="cup-linha" />
+      <div className="cup-rodape">
+        NÃO É DOCUMENTO FISCAL
+        <br />
+        conferência interna
+      </div>
     </div>
   )
 }

@@ -745,6 +745,98 @@ button:active {
   opacity: 0.4;
 }
 
+/* três botões no rodapé (Imprimir/Resumo/Pagar parte): divide a linha em partes
+   iguais, senão "Pagar parte" empurra os outros pra fora no celular estreito */
+.rodape-botoes > button {
+  flex: 1;
+  min-width: 0;
+  padding: 12px 6px;
+  font-size: 13.5px;
+  white-space: normal;
+}
+
+/* ===== Cupom de conferência (impressora térmica) =====
+   Na tela ele não existe. É montado escondido junto com a comanda e só aparece
+   no papel: o @media print apaga o app e deixa esta folha sozinha. Ele fica
+   pendurado direto no <body> (portal do React), por isso o seletor consegue
+   esconder todo o resto. */
+.cupom {
+  display: none;
+}
+@media print {
+  body.tem-cupom > *:not(.cupom) {
+    display: none !important;
+  }
+  html,
+  body {
+    height: auto;
+    background: #fff;
+  }
+  @page {
+    margin: 4mm;
+  }
+  .cupom {
+    display: block;
+    width: 100%;
+    max-width: 80mm; /* bobina; em folha maior não estica e vira uma tira */
+    color: #000;
+    background: #fff;
+    font-family: 'Courier New', Courier, monospace;
+    font-size: 12px;
+    line-height: 1.4;
+  }
+  .cup-loja {
+    text-align: center;
+    font-size: 16px;
+    font-weight: 800;
+    text-transform: uppercase;
+  }
+  .cup-sub {
+    text-align: center;
+    font-size: 11px;
+  }
+  .cup-nome {
+    font-size: 15px;
+    font-weight: 800;
+    margin: 2px 0;
+  }
+  .cup-linha {
+    border-top: 1px dashed #000;
+    margin: 6px 0;
+  }
+  .cup-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 6px;
+  }
+  .cup-mini {
+    font-size: 11px;
+  }
+  .cup-itens .cup-row {
+    margin-bottom: 2px;
+  }
+  .cup-q {
+    flex-shrink: 0;
+    font-weight: 700;
+  }
+  .cup-n {
+    flex: 1;
+  }
+  .cup-v {
+    flex-shrink: 0;
+  }
+  .cup-total {
+    font-size: 15px;
+    font-weight: 800;
+    margin-top: 2px;
+  }
+  .cup-rodape {
+    text-align: center;
+    font-size: 10px;
+    margin-top: 4px;
+  }
+}
+
 /* painel de resumo de fechamento */
 .resumo-overlay {
   position: fixed;
