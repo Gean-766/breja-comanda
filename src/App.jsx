@@ -355,7 +355,18 @@ export default function App({ distribuidora = null, onSair = null }) {
           created_at: p.cliente.created_at,
         })
         if (p.consumos?.length) await supabase.from('consumos').insert(p.consumos)
+        // os pagamentos parciais também caem por cascata: sem isto, desfazer
+        // devolveria a comanda mas não o dinheiro que já tinha entrado
+        if (p.parciais?.length) await supabase.from('pagamentos_parciais').insert(p.parciais)
       } else if (h.tipo === 'abrir_cliente') {
+        // desfazer a abertura apaga a comanda — e a cascata do banco levaria
+        // junto o que foi lançado e o que já foi pago nela
+        const temItens = consumos.some((c) => c.cliente_id === p.cliente.id)
+        const temPago = parciais.some((x) => x.cliente_id === p.cliente.id)
+        if (temItens || temPago) {
+          erro('Essa comanda já tem lançamento ou pagamento. Feche ou esvazie ela antes.')
+          return
+        }
         await supabase.from('clientes').delete().eq('id', p.cliente.id)
       } else if (h.tipo === 'fechar_cliente') {
         await supabase
@@ -367,14 +378,33 @@ export default function App({ distribuidora = null, onSair = null }) {
       } else if (h.tipo === 'remover_consumo') {
         await supabase.from('consumos').insert(p.consumo)
       } else if (h.tipo === 'add_produto') {
-        await supabase.from('cervejas').delete().in('id', p.ids || [])
+        // apagar o produto leva junto, por cascata, a contagem de estoque dele;
+        // e as vendas já feitas ficariam órfãs (elas guardam o nome, não o id)
+        const ids = p.ids || []
+        const nomes = cervejas.filter((c) => ids.includes(c.id)).map((c) => reprProduto(c))
+        const temEntrada = entradas.some((e) => ids.includes(e.cerveja_id))
+        const temVenda = consumos.some((co) => nomes.includes(co.beer_nome))
+        if (temEntrada || temVenda) {
+          erro('Esse produto já tem estoque contado ou venda. Use o ✕ no card dele.')
+          return
+        }
+        await supabase.from('cervejas').delete().in('id', ids)
       } else if (h.tipo === 'remover_produto') {
         await supabase.from('cervejas').update({ ativo: true }).eq('id', p.produto.id)
       } else if (h.tipo === 'editar_produto') {
+        // voltar o nome do produto é renomear: o histórico de vendas tem que ir
+        // junto, senão as saídas antigas param de descontar do estoque
+        const atual = cervejas.find((c) => c.id === p.id)
+        const de = atual ? reprProduto(atual) : null
+        const para = p.antes.tamanho ? `${p.antes.nome} ${p.antes.tamanho}` : p.antes.nome
         await supabase
           .from('cervejas')
           .update({ nome: p.antes.nome, tamanho: p.antes.tamanho })
           .eq('id', p.id)
+        if (de && de !== para) {
+          await supabase.from('consumos').update({ beer_nome: para }).eq('beer_nome', de)
+          await supabase.from('perdas').update({ beer_nome: para }).eq('beer_nome', de)
+        }
       } else if (h.tipo === 'mudar_preco') {
         await supabase.from('cervejas').update({ preco: p.antes }).eq('id', p.id)
       } else if (h.tipo === 'venda_balcao') {
@@ -468,29 +498,18 @@ export default function App({ distribuidora = null, onSair = null }) {
     }
     if (!item) return
     const cli = clientes.find((c) => c.id === item.cliente_id)
-    registrar(
+    const h = await registrar(
       'remover_consumo',
       `−${item.quantidade}× ${item.beer_nome}${cli ? ' — ' + cli.nome : ''}`,
       { consumo: item }
     )
+    // O desfazer do toast é o MESMO do Histórico. Antes ele inseria uma cópia
+    // nova do item: quem usasse os dois ficava com a venda em dobro — estoque
+    // baixando duas vezes e faturamento inflado. Passando pelo `reverter`, a
+    // linha volta com o id original e o histórico fica marcado como desfeito,
+    // então o segundo clique não faz nada.
     mostrarToast('Item removido', {
-      acao: {
-        label: '↩ Desfazer',
-        fn: async () => {
-          const { data } = await supabase
-            .from('consumos')
-            .insert({
-              cliente_id: item.cliente_id,
-              beer_nome: item.beer_nome,
-              preco_unit: item.preco_unit,
-              quantidade: item.quantidade,
-              created_at: item.created_at,
-            })
-            .select()
-            .single()
-          if (data) setConsumos((cs) => [data, ...cs])
-        },
-      },
+      acao: h ? { label: '↩ Desfazer', fn: () => reverter({ ...h, _semConfirm: true }) } : null,
     })
   }
 
@@ -510,6 +529,13 @@ export default function App({ distribuidora = null, onSair = null }) {
         .update({ aberto: false, pago_em })
         .eq('id', cliente_id)
     }
+    // sem esta checagem, uma falha de rede tirava a comanda da tela mas ela
+    // continuava ABERTA no banco: o garçom achava que fechou e o dinheiro
+    // ficava fora do caixa até alguém reparar
+    if (upd.error) {
+      erro('⚠️ Não consegui fechar a comanda. Sem conexão? Tente de novo.')
+      return
+    }
     setClientes((cs) => cs.filter((c) => c.id !== cliente_id))
     // já joga na lista de pagas pro Relatório refletir na hora
     if (cli) setPagas((ps) => [{ ...cli, aberto: false, pago_em, forma_pagamento: forma }, ...ps])
@@ -523,10 +549,39 @@ export default function App({ distribuidora = null, onSair = null }) {
       )
   }
 
+  // ATENÇÃO: apagar a comanda leva junto, POR CASCATA NO BANCO, as vendas
+  // (consumos) e os pagamentos já recebidos (pagamentos_parciais). Ou seja:
+  // dinheiro que já entrou na gaveta sumiria do caixa e as bebidas que saíram
+  // da geladeira voltariam a contar como estoque. As travas abaixo existem
+  // porque isso é um rombo silencioso — ninguém vê o erro acontecer.
   async function excluirCliente(cliente_id) {
     // captura tudo ANTES de apagar, pra conseguir restaurar depois
     const cli = clientes.find((c) => c.id === cliente_id)
     const cons = consumos.filter((c) => c.cliente_id === cliente_id)
+    const pagos = parciais.filter((p) => p.cliente_id === cliente_id)
+    const jaPago = pagos.reduce((s, p) => s + Number(p.valor || 0), 0)
+    const total = cons.reduce((s, c) => s + Number(c.preco_unit) * c.quantidade, 0)
+
+    if (jaPago > 0.009) {
+      alert(
+        `Não dá pra excluir: esta comanda já recebeu ${money(jaPago)}.\n\n` +
+          `Apagar aqui faria esse dinheiro sumir do caixa e as bebidas voltarem pro estoque.\n\n` +
+          `• Se ele pagou tudo, use "✓ Receber o resto".\n` +
+          `• Se ficou devendo, deixe a comanda aberta — ela aparece em "Em aberto agora" no Relatório.`
+      )
+      return
+    }
+    if (cons.length > 0) {
+      const ok = confirm(
+        `Excluir a comanda de ${cli ? cli.nome : ''}?\n\n` +
+          `Isso apaga ${cons.length} lançamento${cons.length === 1 ? '' : 's'} (${money(total)}) e ` +
+          `devolve as bebidas pro estoque, como se nunca tivessem saído.\n\n` +
+          `Use só se a comanda foi aberta por engano. Se a pessoa levou e não pagou, ` +
+          `feche pelo botão de pagamento.`
+      )
+      if (!ok) return
+    }
+
     await supabase.from('clientes').delete().eq('id', cliente_id)
     setClientes((cs) => cs.filter((c) => c.id !== cliente_id))
     setAbertoId(null)
@@ -535,7 +590,7 @@ export default function App({ distribuidora = null, onSair = null }) {
       const h = await registrar(
         'excluir_cliente',
         `Excluiu a comanda de ${cli.nome} (${cons.length} lançamento${cons.length === 1 ? '' : 's'})`,
-        { cliente: cli, consumos: cons }
+        { cliente: cli, consumos: cons, parciais: pagos }
       )
       mostrarToast(`${cli.nome} excluído`, {
         acao: h
@@ -612,8 +667,16 @@ export default function App({ distribuidora = null, onSair = null }) {
       preco_unit: it.cerveja.preco,
       quantidade: it.qtd,
     }))
-    const { data: cons } = await supabase.from('consumos').insert(linhas).select()
-    if (cons?.length) setConsumos((cs) => [...cons, ...cs]) // estoque + relatório na hora
+    const { data: cons, error: errIt } = await supabase.from('consumos').insert(linhas).select()
+    // se os itens não gravarem, sobra uma venda fechada e VAZIA: o dinheiro
+    // entrou mas o relatório mostraria R$ 0,00 e o estoque não baixaria.
+    // Melhor desfazer a venda inteira e mandar refazer.
+    if (errIt || !cons?.length) {
+      await supabase.from('clientes').delete().eq('id', cli.id)
+      erro('⚠️ A venda não foi registrada. Refaça — nada foi cobrado no sistema.')
+      return
+    }
+    setConsumos((cs) => [...cons, ...cs]) // estoque + relatório na hora
     setPagas((ps) => [{ ...cli }, ...ps]) // caixa "recebido" reflete na hora
     const total = linhas.reduce((s, r) => s + Number(r.preco_unit) * r.quantidade, 0)
     setBalcaoAberto(false)
@@ -1098,6 +1161,84 @@ function PastasDeProdutos({ produtos, busca, setBusca, renderCard, badge, vazio,
   )
 }
 
+// CONTA DIVIDIDA: quais garrafas da mesa já foram pagas e quais faltam.
+// Fica aqui fora, pura, porque é a terceira conta que TEM que fechar — é o
+// que o freguês vê quando pergunta "o que falta do meu?".
+//
+// Pagamento POR GARRAFA guarda QUAIS garrafas (JSON no campo obs), então
+// marca exatamente aquelas. Pagamento POR VALOR não sabe qual garrafa: cobre
+// as mais baratas primeiro, pra o vermelho da tela nunca prometer menos
+// dívida do que existe.
+function calcularGarrafas(consumos, parciais) {
+    const itensDoPagto = (p) => {
+      if (Array.isArray(p.itens)) return p.itens
+      if (p.obs) {
+        try {
+          const x = JSON.parse(p.obs)
+          return Array.isArray(x) ? x : null
+        } catch (_) {
+          return null
+        }
+      }
+      return null
+    }
+    const uni = []
+    for (const co of consumos)
+      for (let k = 0; k < co.quantidade; k++)
+        uni.push({ nome: co.beer_nome, preco: Number(co.preco_unit), t: co.created_at, pago: false })
+    uni.sort((a, b) => new Date(a.t) - new Date(b.t))
+
+    // 1) pagamentos por garrafa marcam produtos específicos
+    const pagoItens = new Map()
+    let valorGenerico = 0
+    for (const p of parciais) {
+      const its = itensDoPagto(p)
+      if (its && its.length) {
+        for (const it of its)
+          pagoItens.set(it.nome, (pagoItens.get(it.nome) || 0) + Number(it.qtd || 0))
+      } else {
+        valorGenerico += Number(p.valor || 0)
+      }
+    }
+    for (const [nome, q] of pagoItens) {
+      let restam = q
+      for (const u of uni) {
+        if (restam <= 0) break
+        if (u.nome === nome && !u.pago) {
+          u.pago = true
+          restam -= 1
+        }
+      }
+    }
+    // 2) pagamentos por valor cobrem o restante (mais barato primeiro)
+    let acc = 0
+    for (const u of uni.filter((x) => !x.pago).sort((a, b) => a.preco - b.preco)) {
+      if (acc + u.preco <= valorGenerico + 0.001) {
+        u.pago = true
+        acc += u.preco
+      }
+    }
+
+    const agrupar = (lista) => {
+      const m = new Map()
+      for (const u of lista) {
+        if (!m.has(u.nome)) m.set(u.nome, { nome: u.nome, qtd: 0, total: 0, preco: u.preco })
+        const g = m.get(u.nome)
+        g.qtd += 1
+        g.total += u.preco
+      }
+      return [...m.values()].sort((a, b) => b.qtd - a.qtd)
+    }
+    const pagas = uni.filter((u) => u.pago)
+    const pend = uni.filter((u) => !u.pago)
+    return {
+      nPagas: pagas.length,
+      nFalta: pend.length,
+      pagasGrp: agrupar(pagas),
+      pendentesGrp: agrupar(pend),
+    }
+}
+
 function Detalhe({ cliente, loja = 'Comanda', cervejas, consumos, resumo, parciais = [], onAdd, onRemove, onPagarParte, onFechar, onExcluir, onRenomear, onVoltar }) {
   const [qtd, setQtd] = useState(1)
   const [editNome, setEditNome] = useState(false) // editando o nome da comanda
@@ -1174,75 +1315,8 @@ function Detalhe({ cliente, loja = 'Comanda', cervejas, consumos, resumo, parcia
   // campo obs) → marca exatamente esses produtos, então a Heineken já paga não volta
   // pra lista. Pagamento POR VALOR não sabe qual garrafa → cobre o restante mais
   // barato primeiro. Assim o vermelho mostra só o que realmente falta pagar.
-  const garrafas = useMemo(() => {
-    const itensDoPagto = (p) => {
-      if (Array.isArray(p.itens)) return p.itens
-      if (p.obs) {
-        try {
-          const x = JSON.parse(p.obs)
-          return Array.isArray(x) ? x : null
-        } catch (_) {
-          return null
-        }
-      }
-      return null
-    }
-    const uni = []
-    for (const co of consumos)
-      for (let k = 0; k < co.quantidade; k++)
-        uni.push({ nome: co.beer_nome, preco: Number(co.preco_unit), t: co.created_at, pago: false })
-    uni.sort((a, b) => new Date(a.t) - new Date(b.t))
-
-    // 1) pagamentos por garrafa marcam produtos específicos
-    const pagoItens = new Map()
-    let valorGenerico = 0
-    for (const p of parciais) {
-      const its = itensDoPagto(p)
-      if (its && its.length) {
-        for (const it of its)
-          pagoItens.set(it.nome, (pagoItens.get(it.nome) || 0) + Number(it.qtd || 0))
-      } else {
-        valorGenerico += Number(p.valor || 0)
-      }
-    }
-    for (const [nome, q] of pagoItens) {
-      let restam = q
-      for (const u of uni) {
-        if (restam <= 0) break
-        if (u.nome === nome && !u.pago) {
-          u.pago = true
-          restam -= 1
-        }
-      }
-    }
-    // 2) pagamentos por valor cobrem o restante (mais barato primeiro)
-    let acc = 0
-    for (const u of uni.filter((x) => !x.pago).sort((a, b) => a.preco - b.preco)) {
-      if (acc + u.preco <= valorGenerico + 0.001) {
-        u.pago = true
-        acc += u.preco
-      }
-    }
-
-    const agrupar = (lista) => {
-      const m = new Map()
-      for (const u of lista) {
-        if (!m.has(u.nome)) m.set(u.nome, { nome: u.nome, qtd: 0, total: 0, preco: u.preco })
-        const g = m.get(u.nome)
-        g.qtd += 1
-        g.total += u.preco
-      }
-      return [...m.values()].sort((a, b) => b.qtd - a.qtd)
-    }
-    const pagas = uni.filter((u) => u.pago)
-    const pend = uni.filter((u) => !u.pago)
-    return {
-      nPagas: pagas.length,
-      nFalta: pend.length,
-      pagasGrp: agrupar(pagas),
-      pendentesGrp: agrupar(pend),
-    }
-  }, [consumos, parciais])
+  // quais garrafas já foram pagas e quais faltam (ver calcularGarrafas)
+  const garrafas = useMemo(() => calcularGarrafas(consumos, parciais), [consumos, parciais])
   const garrafasFalta = garrafas.nFalta
 
   // seleção do "pagar por garrafa" — a lista mostra SÓ o que ainda falta pagar
@@ -1379,14 +1453,9 @@ function Detalhe({ cliente, loja = 'Comanda', cervejas, consumos, resumo, parcia
             </button>
             <button
               className="excluir-x"
-              onClick={() => {
-                if (
-                  confirm(
-                    `Excluir ${cliente.nome} da lista? (apaga tudo, mesmo sem pagar)`
-                  )
-                )
-                  onExcluir(cliente.id)
-              }}
+              // quem confirma (e quem barra, se já entrou dinheiro) é o
+              // excluirCliente lá em cima, que enxerga vendas e pagamentos
+              onClick={() => onExcluir(cliente.id)}
             >
               ✕ Excluir
             </button>
@@ -3056,6 +3125,65 @@ function dividirEmSubPastas(itens, pegaProduto = (x) => x) {
   return { subs, soltos }
 }
 
+// ESTOQUE de cada produto. Fica aqui fora, pura, porque é a outra conta que
+// TEM que estar certa: é ela que diz o que precisa comprar.
+//
+//   saldo = entradas − saídas − perdas
+//
+// A saída vem dos `consumos` (a venda lançada na comanda ou no balcão) e casa
+// pelo NOME do produto. Só conta o que saiu DEPOIS da primeira entrada — a
+// contagem inicial é o marco zero; venda anterior a ela já estava descontada
+// no número que o dono contou na mão.
+function calcularEstoque(cervejas, entradas, consumos, perdas) {
+  const repr = (c) => (c.tamanho ? `${c.nome} ${c.tamanho}` : c.nome)
+
+  const saidasPorNome = new Map()
+  for (const co of consumos) {
+    if (!saidasPorNome.has(co.beer_nome)) saidasPorNome.set(co.beer_nome, [])
+    saidasPorNome.get(co.beer_nome).push({ qtd: co.quantidade, ts: new Date(co.created_at).getTime() })
+  }
+  const entradasPorCerveja = new Map()
+  for (const e of entradas) {
+    if (!entradasPorCerveja.has(e.cerveja_id)) entradasPorCerveja.set(e.cerveja_id, [])
+    entradasPorCerveja.get(e.cerveja_id).push(e)
+  }
+  const perdasPorCerveja = new Map()
+  for (const p of perdas) {
+    if (!p.cerveja_id) continue
+    if (!perdasPorCerveja.has(p.cerveja_id)) perdasPorCerveja.set(p.cerveja_id, [])
+    perdasPorCerveja.get(p.cerveja_id).push({ qtd: p.quantidade, ts: new Date(p.created_at).getTime() })
+  }
+
+  const arr = cervejas.map((c) => {
+    const ents = entradasPorCerveja.get(c.id) || []
+    const controlado = ents.length > 0
+    let entrou = 0
+    let desde = Infinity
+    for (const e of ents) {
+      entrou += Number(e.unidades) || 0
+      const t = new Date(e.created_at).getTime()
+      if (t < desde) desde = t
+    }
+    let saiu = 0
+    let perdidas = 0
+    if (controlado) {
+      for (const s of saidasPorNome.get(repr(c)) || []) if (s.ts >= desde) saiu += s.qtd
+      for (const p of perdasPorCerveja.get(c.id) || []) if (p.ts >= desde) perdidas += p.qtd
+    }
+    const saldo = entrou - saiu - perdidas
+    const custoUnit =
+      c.custo_caixa && c.unidades_caixa ? Number(c.custo_caixa) / Number(c.unidades_caixa) : null
+    const min = Number(c.estoque_min) || 0
+    let nivel = 'novo'
+    if (controlado) nivel = saldo <= 0 ? 'zero' : min > 0 && saldo <= min ? 'baixo' : 'ok'
+    return { c, controlado, entrou, saiu, perdidas, saldo, custoUnit, min, nivel, ents }
+  })
+  // o que precisa de compra sobe pro topo
+  const rank = { zero: 0, baixo: 1, ok: 2, novo: 3 }
+  return arr.sort((a, b) => rank[a.nivel] - rank[b.nivel] || a.c.nome.localeCompare(b.c.nome))
+}
+
+
 function AbaEstoque({ cervejas, setCervejas, entradas, setEntradas, consumos, perdas = [], setPerdas, onErro, onLog }) {
   const [abertoId, setAbertoId] = useState(null)
   const [vista, setVista] = useState('estoque') // 'estoque' (visão geral) | 'cadastro' | 'perdas'
@@ -3345,6 +3473,10 @@ function AbaEstoque({ cervejas, setCervejas, entradas, setEntradas, consumos, pe
     onLog?.('remover_produto', `Removeu produto: ${reprDe(c)}`, { produto: c })
   }
 
+  // Renomear é a operação mais perigosa do app: o saldo de estoque casa a SAÍDA
+  // pelo NOME do produto (consumos.beer_nome, gravado na hora da venda). Trocar
+  // só o nome faria as vendas antigas pararem de descontar e o estoque subir
+  // sozinho. Por isso o histórico é levado junto, na mesma ação.
   async function renomear(c) {
     const atual = reprDe(c)
     const novo = (prompt('Novo nome do produto:', atual) || '').trim()
@@ -3354,72 +3486,17 @@ function AbaEstoque({ cervejas, setCervejas, entradas, setEntradas, consumos, pe
       .update({ nome: novo, tamanho: '' })
       .eq('id', c.id)
     if (error) return onErro('⚠️ Não consegui renomear. Tente de novo.')
+    // vendas e perdas passam a apontar pro nome novo (o RLS já limita à loja)
+    await supabase.from('consumos').update({ beer_nome: novo }).eq('beer_nome', atual)
+    await supabase.from('perdas').update({ beer_nome: novo }).eq('beer_nome', atual)
     setCervejas((cs) => cs.map((x) => (x.id === c.id ? { ...x, nome: novo, tamanho: '' } : x)))
   }
 
-  // saídas somadas por nome-de-produto, guardando o instante (pra cortar no "desde")
-  const saidasPorNome = useMemo(() => {
-    const m = new Map()
-    for (const co of consumos) {
-      if (!m.has(co.beer_nome)) m.set(co.beer_nome, [])
-      m.get(co.beer_nome).push({ qtd: co.quantidade, ts: new Date(co.created_at).getTime() })
-    }
-    return m
-  }, [consumos])
-
-  const entradasPorCerveja = useMemo(() => {
-    const m = new Map()
-    for (const e of entradas) {
-      if (!m.has(e.cerveja_id)) m.set(e.cerveja_id, [])
-      m.get(e.cerveja_id).push(e)
-    }
-    return m
-  }, [entradas])
-
-  // perdas somadas por produto (guardando o instante, pra cortar no "desde" igual às saídas)
-  const perdasPorCerveja = useMemo(() => {
-    const m = new Map()
-    for (const p of perdas) {
-      if (!p.cerveja_id) continue
-      if (!m.has(p.cerveja_id)) m.set(p.cerveja_id, [])
-      m.get(p.cerveja_id).push({ qtd: p.quantidade, ts: new Date(p.created_at).getTime() })
-    }
-    return m
-  }, [perdas])
-
-  // calcula tudo por produto e ordena (alertas no topo)
-  const lista = useMemo(() => {
-    const arr = cervejas.map((c) => {
-      const ents = entradasPorCerveja.get(c.id) || []
-      const controlado = ents.length > 0
-      let entrou = 0
-      let desde = Infinity
-      for (const e of ents) {
-        entrou += Number(e.unidades) || 0
-        const t = new Date(e.created_at).getTime()
-        if (t < desde) desde = t
-      }
-      let saiu = 0
-      let perdidas = 0
-      if (controlado) {
-        for (const s of saidasPorNome.get(reprDe(c)) || []) if (s.ts >= desde) saiu += s.qtd
-        for (const p of perdasPorCerveja.get(c.id) || []) if (p.ts >= desde) perdidas += p.qtd
-      }
-      const saldo = entrou - saiu - perdidas
-      const custoUnit =
-        c.custo_caixa && c.unidades_caixa
-          ? Number(c.custo_caixa) / Number(c.unidades_caixa)
-          : null
-      const min = Number(c.estoque_min) || 0
-      let nivel = 'novo'
-      if (controlado) nivel = saldo <= 0 ? 'zero' : min > 0 && saldo <= min ? 'baixo' : 'ok'
-      return { c, controlado, entrou, saiu, perdidas, saldo, custoUnit, min, nivel, ents }
-    })
-    const rank = { zero: 0, baixo: 1, ok: 2, novo: 3 }
-    return arr.sort(
-      (a, b) => rank[a.nivel] - rank[b.nivel] || a.c.nome.localeCompare(b.c.nome)
-    )
-  }, [cervejas, entradasPorCerveja, saidasPorNome, perdasPorCerveja])
+  // saldo, custo e nível de alerta de cada produto (ver calcularEstoque)
+  const lista = useMemo(
+    () => calcularEstoque(cervejas, entradas, consumos, perdas),
+    [cervejas, entradas, consumos, perdas]
+  )
 
   // busca por nome (quando tem texto, ignora as pastas e mostra tudo que casa)
   const listaFiltrada = useMemo(() => {
