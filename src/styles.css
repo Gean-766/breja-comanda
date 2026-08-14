@@ -2299,6 +2299,10 @@ input[type='number'] {
   font-size: 24px;
   font-weight: 700;
 }
+/* sub-pastas dentro de uma pasta (2º nível), antes dos produtos soltos */
+.est-subs {
+  margin-bottom: 12px;
+}
 /* topo do detalhe da pasta */
 .est-nav {
   position: relative;
