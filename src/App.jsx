@@ -1464,23 +1464,8 @@ function Detalhe({ cliente, loja = 'Comanda', cervejas, consumos, resumo, parcia
           }}
         />
 
-        <div className="historico">
-          {consumos.length === 0 && <p className="vazio">Ainda nada lançado.</p>}
-          {consumos.map((co) => (
-            <div key={co.id} className="item">
-              <span className="item-hora">🕐 {hora(co.created_at)}</span>
-              <span className="item-desc">
-                {co.quantidade}× {co.beer_nome}
-              </span>
-              <span className="item-valor">
-                {money(co.preco_unit * co.quantidade)}
-              </span>
-              <button className="item-x" onClick={() => onRemove(co.id)}>
-                ✕
-              </button>
-            </div>
-          ))}
-        </div>
+        {/* a lista de lançamentos saiu daqui e foi pro 📋 Resumo — na tela da
+            mesa ela empurrava os produtos pra baixo a cada cerveja lançada */}
 
         <footer className="det-rodape">
           {/* 1ª linha — total à esquerda + calculadora "dividir" à direita */}
@@ -1572,6 +1557,28 @@ function Detalhe({ cliente, loja = 'Comanda', cervejas, consumos, resumo, parcia
                   <span className="ri-total">{money(it.total)}</span>
                 </div>
               ))}
+
+              {/* cada lançamento com a hora. É aqui que se tira um item lançado
+                  errado — o ✕ que antes ficava solto na tela da mesa. */}
+              {consumos.length > 0 && (
+                <>
+                  <span className="resumo-sub">🕐 Lançamentos · toque no ✕ pra tirar</span>
+                  {consumos.map((co) => (
+                    <div key={co.id} className="item">
+                      <span className="item-hora">🕐 {hora(co.created_at)}</span>
+                      <span className="item-desc">
+                        {co.quantidade}× {co.beer_nome}
+                      </span>
+                      <span className="item-valor">
+                        {money(co.preco_unit * co.quantidade)}
+                      </span>
+                      <button className="item-x" onClick={() => onRemove(co.id)}>
+                        ✕
+                      </button>
+                    </div>
+                  ))}
+                </>
+              )}
             </div>
             <div className="resumo-total">
               <span>{resumo.qtd} produtos</span>
@@ -3080,6 +3087,8 @@ function AbaEstoque({ cervejas, setCervejas, entradas, setEntradas, consumos, pe
   const [nFotoPrev, setNFotoPrev] = useState('') // miniatura dela na tela
   const [salvando, setSalvando] = useState(false) // salvando produto (a foto demora)
   const [fotoSubindo, setFotoSubindo] = useState(null) // id do produto cuja foto está subindo
+  const [movendo, setMovendo] = useState(null) // produto no modal de mover
+  const [organizando, setOrganizando] = useState(null) // {pasta, sub, itens} sendo organizada
   const reprDe = (c) => (c.tamanho ? `${c.nome} ${c.tamanho}` : c.nome)
 
   function abrirForm(pasta, sub = null) {
@@ -3121,6 +3130,94 @@ function AbaEstoque({ cervejas, setCervejas, entradas, setEntradas, consumos, pe
     setNovoSub(null)
     setSubAberta(nome)
     setBuscaPasta('')
+  }
+
+  // ---------- organizar: mover produto, pasta e sub-pasta ----------
+  // Tudo passa por aqui: trocar o rótulo (`categoria`/`subcategoria`) de um
+  // punhado de produtos numa tacada. Pasta vazia não existe no banco, então
+  // renomear uma pasta é renomear o rótulo de todos os produtos dela.
+  async function reetiquetar(itens, campos) {
+    const ids = itens.map((it) => (it.c ? it.c.id : it.id))
+    if (!ids.length) return true
+    const { error } = await supabase.from('cervejas').update(campos).in('id', ids)
+    if (error) {
+      onErro('⚠️ Não consegui mover. Rodou o SQL "sub-pastas" no Supabase?')
+      return false
+    }
+    setCervejas((cs) => cs.map((c) => (ids.includes(c.id) ? { ...c, ...campos } : c)))
+    return true
+  }
+
+  async function moverProduto(pasta, sub) {
+    const c = movendo
+    if (!c) return
+    if (await reetiquetar([{ id: c.id }], { categoria: pasta, subcategoria: sub || null }))
+      setMovendo(null)
+  }
+
+  const acoesOrganizar = {
+    renomear: async () => {
+      const a = organizando
+      const atual = a.sub || a.pasta
+      const novo = (prompt('Novo nome:', atual) || '').trim()
+      if (!novo || novo === atual) return
+      const ok = await reetiquetar(a.itens, a.sub ? { subcategoria: novo } : { categoria: novo })
+      if (!ok) return
+      if (a.sub) {
+        setSubsCustom((s) => s.map((x) => (x.pasta === a.pasta && x.sub === atual ? { ...x, sub: novo } : x)))
+        setSubAberta(novo)
+      } else {
+        setPastasCustom((p) => p.map((x) => (x === atual ? novo : x)))
+        setSubsCustom((s) => s.map((x) => (x.pasta === atual ? { ...x, pasta: novo } : x)))
+        setPastaAberta(novo)
+      }
+      setOrganizando(null)
+    },
+    // a sub-pasta inteira (com os produtos) muda de pasta
+    moverSub: async (destino) => {
+      const a = organizando
+      if (!(await reetiquetar(a.itens, { categoria: destino }))) return
+      setSubsCustom((s) => s.filter((x) => !(x.pasta === a.pasta && x.sub === a.sub)))
+      setOrganizando(null)
+      setPastaAberta(destino)
+      setSubAberta(a.sub)
+    },
+    // a pasta vira sub-pasta de outra (é assim que se junta duas)
+    pastaViraSub: async (destino) => {
+      const a = organizando
+      if (!(await reetiquetar(a.itens, { categoria: destino, subcategoria: a.pasta }))) return
+      setPastasCustom((p) => p.filter((x) => x !== a.pasta))
+      setOrganizando(null)
+      setPastaAberta(destino)
+      setSubAberta(a.pasta)
+    },
+    // a sub-pasta sobe e vira pasta de primeiro nível
+    subViraPasta: async () => {
+      const a = organizando
+      if (!(await reetiquetar(a.itens, { categoria: a.sub, subcategoria: null }))) return
+      setSubsCustom((s) => s.filter((x) => !(x.pasta === a.pasta && x.sub === a.sub)))
+      setOrganizando(null)
+      setPastaAberta(a.sub)
+      setSubAberta(null)
+    },
+    // desfaz a sub-pasta: os produtos ficam soltos dentro da pasta
+    dissolverSub: async () => {
+      const a = organizando
+      if (!confirm(`Desfazer a sub-pasta "${a.sub}"?\n\nOs ${a.itens.length} produtos ficam soltos em ${a.pasta}. Nenhum produto é apagado.`)) return
+      if (!(await reetiquetar(a.itens, { subcategoria: null }))) return
+      setSubsCustom((s) => s.filter((x) => !(x.pasta === a.pasta && x.sub === a.sub)))
+      setOrganizando(null)
+      setSubAberta(null)
+    },
+    // pasta vazia só existe nesta sessão: apagar é esquecer dela
+    apagarVazia: () => {
+      const a = organizando
+      setPastasCustom((p) => p.filter((x) => x !== a.pasta))
+      setSubsCustom((s) => s.filter((x) => x.pasta !== a.pasta))
+      setOrganizando(null)
+      setPastaAberta(null)
+      setSubAberta(null)
+    },
   }
 
   // foto escolhida no formulário: só mostra a miniatura agora; sobe no Salvar
@@ -3422,6 +3519,7 @@ function AbaEstoque({ cervejas, setCervejas, entradas, setEntradas, consumos, pe
       onRemoverEntrada={removerEntrada}
       onExcluir={() => excluirProduto(it.c)}
       onRenomear={() => renomear(it.c)}
+      onMover={() => setMovendo(it.c)}
       onFoto={trocarFoto}
       subindoFoto={fotoSubindo === it.c.id}
     />
@@ -3534,6 +3632,28 @@ function AbaEstoque({ cervejas, setCervejas, entradas, setEntradas, consumos, pe
     </div>
   )
 
+  // os dois modais de organização aparecem em qualquer tela do Estoque
+  const modais = (
+    <>
+      {movendo && (
+        <MoverProduto
+          produto={movendo}
+          pastas={pastas}
+          onMover={moverProduto}
+          onFechar={() => setMovendo(null)}
+        />
+      )}
+      {organizando && (
+        <OrganizarPasta
+          alvo={organizando}
+          pastas={pastas}
+          acoes={acoesOrganizar}
+          onFechar={() => setOrganizando(null)}
+        />
+      )}
+    </>
+  )
+
   const pastaFoco = pastaAberta ? pastas.find((p) => p.label === pastaAberta) : null
   // dentro da pasta: as sub-pastas dela e os produtos que não estão em nenhuma
   const { subs: subsComItens, soltos } = pastaFoco
@@ -3573,6 +3693,15 @@ function AbaEstoque({ cervejas, setCervejas, entradas, setEntradas, consumos, pe
           <span className="est-nav-tit">
             {nivel ? `${nivel.icone} ${nivel.label}` : ''}
           </span>
+          <button
+            className="est-org"
+            onClick={() =>
+              setOrganizando({ pasta: pastaAberta, sub: subAberta || null, itens: itensFoco })
+            }
+            aria-label="Organizar pasta"
+          >
+            ⚙️
+          </button>
         </div>
 
         {itensFoco.length > 5 && (
@@ -3658,6 +3787,7 @@ function AbaEstoque({ cervejas, setCervejas, entradas, setEntradas, consumos, pe
             )}
           </>
         )}
+        {modais}
       </main>
     )
   }
@@ -4084,11 +4214,199 @@ function AbaEstoque({ cervejas, setCervejas, entradas, setEntradas, consumos, pe
           )}
         </>
       )}
+      {modais}
     </main>
   )
 }
 
-function EstoqueCard({ it, aberto, onAbrir, onCampo, onAbastecer, onRemoverEntrada, onExcluir, onRenomear, onFoto, subindoFoto }) {
+// ===================== Organizar o catálogo =====================
+// Pasta não é registro no banco: é o rótulo que o produto carrega (`categoria`
+// e `subcategoria`). Então mover, renomear e juntar são a MESMA operação —
+// trocar esse rótulo num punhado de produtos de uma vez. É isso que deixa o
+// lojista reorganizar tudo sozinho, sem depender de SQL.
+
+function MoverProduto({ produto, pastas, onMover, onFechar }) {
+  const [pasta, setPasta] = useState(pastaDe(produto))
+  const [sub, setSub] = useState(subPastaDe(produto))
+
+  const daPasta = pastas.find((p) => p.label === pasta)
+  const subs = daPasta ? dividirEmSubPastas(daPasta.itens, (it) => it.c).subs.map((s) => s.label) : []
+
+  return (
+    <div className="pag-overlay" onClick={onFechar}>
+      <div className="pag-box org-box" onClick={(e) => e.stopPropagation()}>
+        <button className="modal-x" onClick={onFechar} aria-label="Fechar">
+          ✕
+        </button>
+        <p className="pag-titulo">📁 Mover produto</p>
+        <strong className="org-alvo">{produto.nome}</strong>
+
+        <span className="org-lbl">Pasta</span>
+        <div className="chips">
+          {pastas.map((p) => (
+            <button
+              key={p.label}
+              className={'chip' + (pasta === p.label ? ' on' : '')}
+              onClick={() => {
+                setPasta(p.label)
+                setSub(null) // sub-pasta é de outra pasta: não vem junto
+              }}
+            >
+              {p.icone} {p.label}
+            </button>
+          ))}
+          <button
+            className="chip chip-novo"
+            onClick={() => {
+              const n = (prompt('Nome da nova pasta:') || '').trim()
+              if (!n) return
+              setPasta(n)
+              setSub(null)
+            }}
+          >
+            + Nova
+          </button>
+        </div>
+
+        <span className="org-lbl">Sub-pasta</span>
+        <div className="chips">
+          <button className={'chip' + (!sub ? ' on' : '')} onClick={() => setSub(null)}>
+            — nenhuma
+          </button>
+          {subs.map((s) => (
+            <button
+              key={s}
+              className={'chip' + (sub === s ? ' on' : '')}
+              onClick={() => setSub(s)}
+            >
+              {iconeSub(s)} {s}
+            </button>
+          ))}
+          <button
+            className="chip chip-novo"
+            onClick={() => {
+              const n = (prompt('Nome da nova sub-pasta:') || '').trim()
+              if (n) setSub(n)
+            }}
+          >
+            + Nova
+          </button>
+        </div>
+
+        <button className="pag-confirmar" onClick={() => onMover(pasta, sub)}>
+          ✓ Mover pra {pasta}
+          {sub ? ' › ' + sub : ''}
+        </button>
+        <button className="pag-cancelar" onClick={onFechar}>
+          Cancelar
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function OrganizarPasta({ alvo, pastas, acoes, onFechar }) {
+  const [escolhendo, setEscolhendo] = useState(null) // 'mover' | 'virarSub'
+  const ehSub = !!alvo.sub
+  const nome = ehSub ? alvo.sub : alvo.pasta
+  const qtd = alvo.itens.length
+  const temSubs = !ehSub && dividirEmSubPastas(alvo.itens, (it) => it.c).subs.length > 0
+  const destinos = pastas.filter((p) => p.label !== alvo.pasta)
+
+  if (escolhendo) {
+    return (
+      <div className="pag-overlay" onClick={onFechar}>
+        <div className="pag-box org-box" onClick={(e) => e.stopPropagation()}>
+          <p className="pag-titulo">
+            {escolhendo === 'mover' ? 'Mover pra qual pasta?' : 'Ficar dentro de qual pasta?'}
+          </p>
+          <div className="chips">
+            {destinos.map((p) => (
+              <button
+                key={p.label}
+                className="chip"
+                onClick={() =>
+                  escolhendo === 'mover' ? acoes.moverSub(p.label) : acoes.pastaViraSub(p.label)
+                }
+              >
+                {p.icone} {p.label}
+              </button>
+            ))}
+            <button
+              className="chip chip-novo"
+              onClick={() => {
+                const n = (prompt('Nome da nova pasta:') || '').trim()
+                if (!n) return
+                escolhendo === 'mover' ? acoes.moverSub(n) : acoes.pastaViraSub(n)
+              }}
+            >
+              + Nova
+            </button>
+          </div>
+          <button className="pag-cancelar" onClick={() => setEscolhendo(null)}>
+            Voltar
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="pag-overlay" onClick={onFechar}>
+      <div className="pag-box org-box" onClick={(e) => e.stopPropagation()}>
+        <button className="modal-x" onClick={onFechar} aria-label="Fechar">
+          ✕
+        </button>
+        <p className="pag-titulo">⚙️ Organizar {ehSub ? 'sub-pasta' : 'pasta'}</p>
+        <strong className="org-alvo">{nome}</strong>
+        <span className="org-sub">
+          {qtd} produto{qtd === 1 ? '' : 's'}
+          {temSubs ? ' · tem sub-pastas' : ''}
+        </span>
+
+        <button className="org-acao" onClick={acoes.renomear}>
+          ✏️ Renomear
+        </button>
+
+        {ehSub ? (
+          <>
+            <button className="org-acao" onClick={() => setEscolhendo('mover')}>
+              📁 Mover pra outra pasta
+            </button>
+            <button className="org-acao" onClick={acoes.subViraPasta}>
+              ⬆️ Virar pasta (sair de {alvo.pasta})
+            </button>
+            <button className="org-acao" onClick={acoes.dissolverSub}>
+              🗑️ Desfazer a sub-pasta
+              <small>os produtos ficam soltos em {alvo.pasta}</small>
+            </button>
+          </>
+        ) : (
+          <>
+            <button
+              className="org-acao"
+              onClick={() => setEscolhendo('virarSub')}
+              disabled={temSubs}
+            >
+              ⬇️ Virar sub-pasta de outra pasta
+              {temSubs && <small>não dá: esta pasta já tem sub-pastas dentro</small>}
+            </button>
+            <button className="org-acao" onClick={acoes.apagarVazia} disabled={qtd > 0}>
+              🗑️ Apagar a pasta
+              {qtd > 0 && <small>tire os {qtd} produtos daqui primeiro</small>}
+            </button>
+          </>
+        )}
+
+        <button className="pag-cancelar" onClick={onFechar}>
+          Fechar
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function EstoqueCard({ it, aberto, onAbrir, onCampo, onAbastecer, onRemoverEntrada, onExcluir, onRenomear, onMover, onFoto, subindoFoto }) {
   const { c, controlado, entrou, saiu, saldo, custoUnit, nivel, ents } = it
   // começa em "unidades" enquanto não houver unid/caixa (assim o 1º uso — a
   // contagem inicial — funciona na hora); com caixa configurada, vai pra "caixas"
@@ -4144,6 +4462,11 @@ function EstoqueCard({ it, aberto, onAbrir, onCampo, onAbastecer, onRemoverEntra
         <button className="est-card-x" onClick={onRenomear} aria-label="Renomear produto">
           ✏️
         </button>
+        {onMover && (
+          <button className="est-card-x" onClick={onMover} aria-label="Mover de pasta">
+            📁
+          </button>
+        )}
         <button className="est-card-x" onClick={onExcluir} aria-label="Excluir produto">
           ✕
         </button>

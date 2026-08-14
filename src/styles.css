@@ -695,6 +695,9 @@ button:active {
 }
 
 .det-rodape {
+  /* segura o rodapé embaixo mesmo com pouca coisa na tela (a lista de
+     lançamentos, que fazia esse papel de encher o espaço, foi pro Resumo) */
+  margin-top: auto;
   position: sticky;
   bottom: 0;
   background: var(--card);
@@ -871,6 +874,15 @@ button:active {
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+/* separador dos lançamentos dentro do Resumo */
+.resumo-sub {
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--muted);
+  margin-top: 6px;
+  padding-top: 10px;
+  border-top: 1px solid var(--card2);
 }
 .resumo-item {
   display: flex;
@@ -2331,6 +2343,74 @@ input[type='number'] {
   font-size: 24px;
   font-weight: 700;
 }
+/* ===== organizar catálogo: mover produto, pasta e sub-pasta ===== */
+/* ⚙️ na barra da pasta (o título fica entre os dois botões, ver .est-nav-tit) */
+.est-org {
+  position: relative;
+  z-index: 1;
+  margin-left: auto;
+  flex-shrink: 0;
+  border: none;
+  background: var(--card);
+  color: var(--text);
+  font-size: 17px;
+  padding: 10px 13px;
+  border-radius: 10px;
+}
+.org-box {
+  gap: 8px;
+}
+.org-alvo {
+  text-align: center;
+  font-size: 20px;
+  font-weight: 900;
+}
+.org-sub {
+  text-align: center;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+.org-lbl {
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--muted);
+  margin-top: 4px;
+}
+/* cada ação é uma linha larga: dedo grande, bar escuro */
+.org-acao {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  width: 100%;
+  padding: 14px 16px;
+  border: none;
+  border-radius: 12px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 15.5px;
+  font-weight: 800;
+  text-align: left;
+}
+.org-acao small {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
+.org-acao:disabled {
+  opacity: 0.55;
+}
+.chip.on {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--accent-dark);
+}
+.chip-novo {
+  border-style: dashed;
+}
+
 /* foto do produto: escolher no cadastro e trocar no card.
    O <input type=file> fica escondido — quem recebe o toque é o rótulo. */
 .est-foto-esc,
