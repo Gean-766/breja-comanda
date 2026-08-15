@@ -106,7 +106,93 @@ const nomeForma = (id) => {
 // Dinheiro que fica na gaveta todo dia só pra dar troco. No fim do dia o que
 // tem que estar lá é: esse fundo + as vendas em dinheiro. É o que deixa o dono
 // conferir a gaveta sem fazer conta.
+// (é só o valor SUGERIDO: quando o caixa é aberto, vale o que ele digitou lá)
 const FUNDO_TROCO = 150
+
+// ============================================================================
+//  O DIA DO BAR  (turno de caixa)
+// ============================================================================
+// Bar não fecha à meia-noite. Quem está bebendo 01:30 ainda é do movimento da
+// noite anterior — mas o relógio já virou o dia e o relatório começava do zero,
+// cortando a noite no meio.
+//
+// Então "dia", aqui, não é o do calendário. É o TURNO, em duas camadas:
+//
+//   1) TURNO DE CAIXA (tabela `caixas`) — o dono abre quando começa a noite e
+//      fecha quando o último sai. Tudo que acontece no meio pertence ao dia da
+//      ABERTURA. É ele quem manda.
+//
+//   2) HORA DA VIRADA (05:00) — rede de segurança. Vale pra noite em que ele
+//      esquecer de fechar e pra tudo que foi vendido antes deste recurso
+//      existir. Passou das 05:00, o dia anterior se fecha sozinho e o próximo
+//      começa: assim ele NUNCA acumula duas noites num relatório só.
+//
+// Nenhuma venda é apagada, movida ou reescrita — cada uma continua com o
+// horário real em que aconteceu. O que muda é só a JANELA que o relatório lê.
+// É por isso que as noites antigas se ajeitam sozinhas: a madrugada do dia 15
+// volta a contar no dia 14 sem tocar em uma linha do banco.
+const HORA_VIRADA = 5
+
+const dd2 = (n) => String(n).padStart(2, '0')
+const diaChave = (d) => `${d.getFullYear()}-${dd2(d.getMonth() + 1)}-${dd2(d.getDate())}`
+
+// A que noite pertence um instante. Antes da virada, ainda é o dia anterior:
+// 15/08 às 01:30, com virada às 05:00, é a noite do dia 14.
+function diaDoBar(ts, virada = HORA_VIRADA) {
+  const d = new Date(ts)
+  d.setHours(d.getHours() - virada)
+  return diaChave(d)
+}
+
+// 'AAAA-MM-DD' + n dias (passa por virada de mês/ano sozinho)
+function somaDia(dia, n) {
+  const [a, m, d] = String(dia).split('-').map(Number)
+  return diaChave(new Date(a, m - 1, d + n))
+}
+
+// o instante da virada de um dia ('AAAA-MM-DD' às 05:00, hora do celular) em ms
+function viradaDe(dia, virada = HORA_VIRADA) {
+  const [a, m, d] = String(dia).split('-').map(Number)
+  return new Date(a, m - 1, d, virada, 0, 0, 0).getTime()
+}
+
+const caixaAbertoDe = (caixas = []) => caixas.find((c) => !c.fechado_em) || null
+
+// O último turno aberto naquela noite (dá pra abrir e fechar mais de uma vez).
+function ultimoCaixaDe(caixas = [], dia) {
+  let alvo = null
+  for (const c of caixas) {
+    if (String(c.dia) !== dia) continue
+    if (!alvo || new Date(c.aberto_em) > new Date(alvo.aberto_em)) alvo = c
+  }
+  return alvo
+}
+
+// Quando a noite acabou: no fechamento do caixa — ou, na falta dele, na virada.
+// O `min` é a rede de segurança: mesmo esquecido, o dia nunca passa da virada.
+function fimDoDia(dia, caixas, virada = HORA_VIRADA, agora = Date.now()) {
+  const limite = viradaDe(somaDia(dia, 1), virada)
+  const ult = ultimoCaixaDe(caixas, dia)
+  const bruto = ult && ult.fechado_em ? new Date(ult.fechado_em).getTime() : agora
+  return Math.min(bruto, limite)
+}
+
+// Janela [inicio, fim] em ms de uma noite. Uma noite começa exatamente onde a
+// anterior terminou — de propósito: assim não existe brecha entre dois dias e
+// nenhuma venda fica de fora de todo relatório.
+function janelaDoDia(dia, caixas, virada = HORA_VIRADA, agora = Date.now()) {
+  const inicio = fimDoDia(somaDia(dia, -1), caixas, virada, agora)
+  const fim = Math.max(inicio, fimDoDia(dia, caixas, virada, agora))
+  return { inicio, fim }
+}
+
+// Que noite está rolando AGORA (é o "Hoje" do relatório). Normalmente é o dia
+// do bar do relógio; se o caixa daquela noite já foi fechado, o que vier agora
+// já conta pra próxima.
+function diaAtualDoBar(caixas, virada = HORA_VIRADA, agora = Date.now()) {
+  const d = diaDoBar(agora, virada)
+  return fimDoDia(d, caixas, virada, agora) < agora ? somaDia(d, 1) : d
+}
 
 // `distribuidora` e `onSair` vêm do Portao.jsx (quem já passou pelo login).
 // O RLS do banco já isola os dados por distribuidora; os filtros por
@@ -121,6 +207,12 @@ export default function App({ distribuidora = null, onSair = null }) {
   const temEstoque = modulos.includes('estoque')
   // comanda por mesa (Mesa 3) ou por pessoa (Alex) — configurado no painel CEO
   const modoMesa = distribuidora?.modo_comanda === 'mesa'
+  // hora em que a noite de ontem finalmente acaba (ver "O DIA DO BAR" lá em cima).
+  // Vem da loja (coluna `hora_virada`); sem ela, 05:00.
+  const virada =
+    distribuidora?.hora_virada != null && Number.isFinite(Number(distribuidora.hora_virada))
+      ? Number(distribuidora.hora_virada)
+      : HORA_VIRADA
   const [aba, setAba] = useState('comandas') // núcleo: 'comandas' | 'cervejas' | 'historico' + módulos
   const [cervejas, setCervejas] = useState([])
   const [clientes, setClientes] = useState([])
@@ -130,6 +222,10 @@ export default function App({ distribuidora = null, onSair = null }) {
   const [pagas, setPagas] = useState([]) // comandas já pagas nos últimos 30d (módulo Relatório)
   const [parciais, setParciais] = useState([]) // pagamentos parciais das comandas abertas (conta dividida)
   const [perdas, setPerdas] = useState([]) // perdas: quebra/vencimento/estrago (módulo Estoque)
+  const [caixas, setCaixas] = useState([]) // turnos de caixa (abertura/fechamento do dia)
+  const [caixaSheet, setCaixaSheet] = useState(null) // folha de abrir/fechar o caixa
+  const [caixaAdiado, setCaixaAdiado] = useState(null) // noite em que ele dispensou o convite
+  const [temCaixas, setTemCaixas] = useState(false) // a tabela `caixas` já existe no banco?
   const [busca, setBusca] = useState('')
   const [novoNome, setNovoNome] = useState('')
   const [abertoId, setAbertoId] = useState(null) // cliente aberto na tela de detalhe
@@ -169,6 +265,19 @@ export default function App({ distribuidora = null, onSair = null }) {
     setHistorico(c4.data || [])
     setCarregando(false)
 
+    // Turnos de caixa (abrir/fechar o dia). Select à parte, como os de baixo:
+    // enquanto o SQL `caixa-turno.sql` não tiver rodado, a tabela não existe,
+    // o erro morre aqui e o app segue funcionando pela hora da virada.
+    // Em erro (rede), mantém a lista que já estava — melhor a informação de um
+    // segundo atrás do que o app achar que o caixa fechou sozinho.
+    const rcx = await meu(supabase.from('caixas').select('*'))
+      .order('aberto_em', { ascending: false })
+      .limit(120)
+    if (!rcx.error) {
+      setCaixas(rcx.data || [])
+      setTemCaixas(true)
+    }
+
     // Estoque só carrega se o módulo estiver ligado. Fica num select à parte
     // (não no Promise.all) pra que, se a tabela ainda não existir no banco,
     // o erro morra aqui e não derrube o resto do carregamento.
@@ -191,29 +300,30 @@ export default function App({ distribuidora = null, onSair = null }) {
     // qual forma cada parte entrou, inclusive de comanda já fechada. Fica à parte
     // (fora do Promise.all) pra não derrubar o resto se a tabela ainda não
     // existir no banco — o app degrada sozinho até rodar o SQL.
+    // Quanto tempo pra trás carregar o que já foi PAGO: o Relatório pede 30
+    // dias (é o maior período dele); sem o Relatório ligado, 3 dias bastam —
+    // é o que a folha de fechamento do caixa precisa pra dizer quanto entrou
+    // na noite. Sem isso, quem não tem o módulo veria "Recebido R$ 0,00".
+    const diasPagos = abasExtra.includes('relatorio') ? 30 : 3
+    const desdePagos = new Date(Date.now() - diasPagos * 24 * 60 * 60 * 1000).toISOString()
+
     const abertosIds = (c2.data || []).map((c) => c.id)
     const baldes = []
     if (abertosIds.length) {
       baldes.push(await meu(supabase.from('pagamentos_parciais').select('*')).in('cliente_id', abertosIds))
     }
-    if (abasExtra.includes('relatorio')) {
-      const desdeMes = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()
-      baldes.push(await meu(supabase.from('pagamentos_parciais').select('*')).gte('created_at', desdeMes))
-    }
+    baldes.push(await meu(supabase.from('pagamentos_parciais').select('*')).gte('created_at', desdePagos))
     const parciaisPorId = new Map()
     for (const b of baldes) for (const p of b.error ? [] : b.data || []) parciaisPorId.set(p.id, p)
     setParciais([...parciaisPorId.values()])
 
-    // Relatório precisa das comandas JÁ PAGAS pra montar o "recebido" (as abertas
-    // já vêm em `clientes`). Últimos 30 dias — bate com o maior período do relatório.
-    if (abasExtra.includes('relatorio')) {
-      const desde30d = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()
-      const rp = await meu(supabase.from('clientes').select('*'))
-        .eq('aberto', false)
-        .gte('pago_em', desde30d)
-        .order('pago_em', { ascending: false })
-      setPagas(rp.data || [])
-    }
+    // Comandas JÁ PAGAS: é delas que sai o "recebido" (as abertas já vêm em
+    // `clientes`). Serve pro Relatório e pra folha de fechamento do caixa.
+    const rp = await meu(supabase.from('clientes').select('*'))
+      .eq('aberto', false)
+      .gte('pago_em', desdePagos)
+      .order('pago_em', { ascending: false })
+    if (!rp.error) setPagas(rp.data || [])
   }
 
   // grava uma linha no histórico (auditoria + permite desfazer).
@@ -269,6 +379,18 @@ export default function App({ distribuidora = null, onSair = null }) {
       supabase.removeChannel(canal)
     }
   }, [])
+
+  // Tempo real do caixa (abriu/fechou num celular, aparece nos outros) num
+  // canal SEPARADO, e só depois de confirmar que a tabela existe: assim, se o
+  // app subir antes do SQL rodar, o tempo real das comandas não vem junto abaixo.
+  useEffect(() => {
+    if (!isConfigured || !temCaixas) return
+    const canal = supabase
+      .channel('comanda-caixas')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'caixas' }, () => carregar())
+      .subscribe()
+    return () => supabase.removeChannel(canal)
+  }, [temCaixas])
 
   // mantém a ref em dia pra o cadeado ler o estado sem re-disparar o efeito
   useEffect(() => {
@@ -416,6 +538,21 @@ export default function App({ distribuidora = null, onSair = null }) {
         await supabase.from('clientes').update({ nome: p.antes }).eq('id', p.id)
       } else if (h.tipo === 'perda') {
         await supabase.from('perdas').delete().eq('id', p.id)
+      } else if (h.tipo === 'abrir_caixa') {
+        // desfazer a abertura é só apagar o turno: nenhuma venda aponta pra ele
+        // (o caixa é uma janela de horário, não um dono das vendas)
+        await supabase.from('caixas').delete().eq('id', p.caixa.id)
+      } else if (h.tipo === 'fechar_caixa') {
+        // reabrir a noite. Se já tem outro caixa aberto, o banco recusa — e é
+        // certo que recuse: dois caixas abertos ao mesmo tempo bagunçariam o dia.
+        const r = await supabase
+          .from('caixas')
+          .update({ fechado_em: null, contado: null })
+          .eq('id', p.caixa.id)
+        if (r.error) {
+          erro('Já tem um caixa aberto agora. Feche ele antes de reabrir esta noite.')
+          return
+        }
       } else {
         return
       }
@@ -718,6 +855,94 @@ export default function App({ distribuidora = null, onSair = null }) {
     mostrarToast(`Recebido ${money(v)} ✓`, { tipo: 'ok' })
   }
 
+  // ==================== TURNO DE CAIXA (abrir / fechar o dia) ==================
+  const caixaAberto = caixaAbertoDe(caixas)
+  const diaAtual = diaAtualDoBar(caixas, virada)
+  // caixa que ficou aberto de uma noite anterior — ele esqueceu de fechar.
+  // Os números daquela noite JÁ estão certos (o relatório corta na virada);
+  // isto aqui é só o lembrete pra ele fechar e conferir a gaveta.
+  const caixaAtrasado = caixaAberto && String(caixaAberto.dia) !== diaAtual ? caixaAberto : null
+
+  async function abrirCaixa(fundo) {
+    const dia = diaAtualDoBar(caixas, virada)
+    const ins = await supabase
+      .from('caixas')
+      .insert({ dia, aberto_em: new Date().toISOString(), fundo_troco: Number(fundo) || 0 })
+      .select()
+      .single()
+    if (ins.error || !ins.data) {
+      const msg = ins.error?.message || ''
+      // a trava do banco (um caixa aberto por vez) recusa o segundo celular que
+      // tocar "abrir" junto. Não é erro de verdade: é só usar o que já abriu.
+      if (/duplicate|unique|uq_caixa_aberto/i.test(msg)) {
+        await carregar()
+        mostrarToast('O caixa já estava aberto ✓', { tipo: 'ok' })
+        return true
+      }
+      erro(
+        /caixas/i.test(msg) && /exist|schema|relation/i.test(msg)
+          ? '⚠️ Falta rodar o SQL "caixa-turno" no Supabase.'
+          : '⚠️ Não consegui abrir o caixa. Sem conexão?'
+      )
+      return false
+    }
+    setCaixas((cs) => [ins.data, ...cs])
+    registrar('abrir_caixa', `Abriu o caixa de ${diaBonito(dia)} (troco ${money(fundo)})`, {
+      caixa: ins.data,
+    })
+    mostrarToast(`Caixa de ${diaBonito(dia)} aberto ✓`, { tipo: 'ok' })
+    return true
+  }
+
+  async function fecharCaixa(cx, contado = null) {
+    if (!cx) return false
+    // Se ele só foi lembrar de fechar depois da virada, o fechamento entra NA
+    // VIRADA — que é onde o relatório já tinha cortado a noite. Assim, fechar
+    // atrasado não mexe em número nenhum: o que veio depois já é do dia seguinte.
+    const limite = viradaDe(somaDia(String(cx.dia), 1), virada)
+    const fechado_em = new Date(Math.min(Date.now(), limite)).toISOString()
+    const campos = { fechado_em }
+    if (contado != null && contado !== '') campos.contado = Number(contado)
+    // se a coluna `contado` ainda não existe no banco, fecha sem ela — o
+    // fechamento do dia nunca trava por causa de um SQL que não rodou
+    let upd = await supabase.from('caixas').update(campos).eq('id', cx.id).select().single()
+    if (upd.error && /contado/i.test(upd.error.message || '')) {
+      upd = await supabase.from('caixas').update({ fechado_em }).eq('id', cx.id).select().single()
+    }
+    if (upd.error) {
+      erro('⚠️ Não consegui fechar o caixa. Sem conexão? Tente de novo.')
+      return false
+    }
+    setCaixas((cs) => cs.map((c) => (c.id === cx.id ? upd.data || { ...c, ...campos } : c)))
+    registrar('fechar_caixa', `Fechou o caixa de ${diaBonito(cx.dia)}`, { caixa: cx })
+    mostrarToast(`Caixa de ${diaBonito(cx.dia)} fechado ✓`, { tipo: 'ok' })
+    return true
+  }
+
+  // Antes da primeira venda da noite, oferece abrir o caixa. Se ele disser
+  // "agora não", a venda acontece do mesmo jeito: o caixa organiza o relatório,
+  // nunca trava o bar. E o convite não volta a aparecer na mesma noite.
+  function comCaixa(acao) {
+    // sem a tabela no banco (SQL ainda não rodou), nem convida: o relatório já
+    // está certo pela hora da virada e a venda não pode esperar por nada
+    if (!temCaixas || caixaAberto || caixaAdiado === diaAtual) {
+      acao()
+      return
+    }
+    setCaixaSheet({ modo: 'abrir', dia: diaAtual, aoContinuar: acao })
+  }
+
+  const resumoTurno = (dia) =>
+    resumoDoTurno({
+      dia,
+      caixas,
+      virada,
+      consumos,
+      pagas,
+      abertas: clientes,
+      parciais,
+    })
+
   if (!isConfigured) return <Aviso />
   if (carregando) return <div className="centro">Carregando…</div>
 
@@ -773,6 +998,16 @@ export default function App({ distribuidora = null, onSair = null }) {
 
       {aba === 'comandas' && (
         <main className="conteudo">
+          {temCaixas && (
+            <BarraCaixa
+              caixaAberto={caixaAberto}
+              caixaAtrasado={caixaAtrasado}
+              diaAtual={diaAtual}
+              onAbrir={() => setCaixaSheet({ modo: 'abrir', dia: diaAtual })}
+              onFechar={() => setCaixaSheet({ modo: 'fechar', caixa: caixaAberto })}
+            />
+          )}
+
           <div className="add-pessoa">
             <input
               className="campo"
@@ -780,15 +1015,18 @@ export default function App({ distribuidora = null, onSair = null }) {
               inputMode={modoMesa ? 'numeric' : 'text'}
               value={novoNome}
               onChange={(e) => setNovoNome(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && adicionarPessoa()}
+              onKeyDown={(e) => e.key === 'Enter' && comCaixa(adicionarPessoa)}
             />
-            <button className="btn-grande" onClick={adicionarPessoa}>
+            <button className="btn-grande" onClick={() => comCaixa(adicionarPessoa)}>
               {modoMesa ? '+ Mesa' : '+ Nova'}
             </button>
           </div>
 
           {cervejas.length > 0 && (
-            <button className="btn-balcao" onClick={() => setBalcaoAberto(true)}>
+            <button
+              className="btn-balcao"
+              onClick={() => comCaixa(() => setBalcaoAberto(true))}
+            >
               ⚡ Venda rápida <span className="bb-sub">— pediu, pagou e levou</span>
             </button>
           )}
@@ -860,6 +1098,14 @@ export default function App({ distribuidora = null, onSair = null }) {
             abertas={clientes}
             perdas={perdas}
             parciais={parciais}
+            caixas={caixas}
+            virada={virada}
+            temCaixas={temCaixas}
+            caixaAberto={caixaAberto}
+            caixaAtrasado={caixaAtrasado}
+            diaAtual={diaAtual}
+            onAbrirCaixa={() => setCaixaSheet({ modo: 'abrir', dia: diaAtual })}
+            onFecharCaixa={() => setCaixaSheet({ modo: 'fechar', caixa: caixaAberto })}
           />
         ) : aba === 'estoque' ? (
           <AbaEstoque
@@ -912,6 +1158,41 @@ export default function App({ distribuidora = null, onSair = null }) {
         />
       )}
 
+      {caixaSheet?.modo === 'abrir' && (
+        <FolhaAbrirCaixa
+          dia={caixaSheet.dia}
+          sugestao={ultimoFundo(caixas)}
+          comVenda={!!caixaSheet.aoContinuar}
+          onAbrir={async (fundo) => {
+            const acao = caixaSheet.aoContinuar
+            setCaixaSheet(null)
+            const ok = await abrirCaixa(fundo)
+            if (ok && acao) acao()
+          }}
+          onAgoraNao={() => {
+            const acao = caixaSheet.aoContinuar
+            setCaixaSheet(null)
+            setCaixaAdiado(caixaSheet.dia) // não insiste de novo nesta noite
+            if (acao) acao()
+          }}
+        />
+      )}
+
+      {caixaSheet?.modo === 'fechar' && caixaSheet.caixa && (
+        <FolhaFecharCaixa
+          caixa={caixaSheet.caixa}
+          resumo={resumoTurno(String(caixaSheet.caixa.dia))}
+          atrasado={!!caixaAtrasado && caixaAtrasado.id === caixaSheet.caixa.id}
+          virada={virada}
+          onFechar={async (contado) => {
+            const cx = caixaSheet.caixa
+            setCaixaSheet(null)
+            await fecharCaixa(cx, contado)
+          }}
+          onCancelar={() => setCaixaSheet(null)}
+        />
+      )}
+
       {toast && (
         <div className={'toast toast-' + toast.tipo} key={toast.id}>
           <span className="toast-msg">{toast.msg}</span>
@@ -947,6 +1228,278 @@ export default function App({ distribuidora = null, onSair = null }) {
   )
 }
 
+
+// ============================================================================
+//  TURNO DE CAIXA — a barra da tela de Comandas e as folhas de abrir/fechar
+//  (as regras de qual venda entra em qual noite estão lá em cima, em
+//   "O DIA DO BAR". Aqui é só a tela.)
+// ============================================================================
+
+// O troco que ele pôs na gaveta da última vez — a gaveta começa quase sempre
+// com o mesmo valor, então já vem preenchido.
+function ultimoFundo(caixas = []) {
+  let alvo = null
+  for (const c of caixas) {
+    if (c.fundo_troco == null) continue
+    if (!alvo || new Date(c.aberto_em) > new Date(alvo.aberto_em)) alvo = c
+  }
+  return alvo ? Number(alvo.fundo_troco) : FUNDO_TROCO
+}
+
+// Os números de UMA noite: o que saiu (faturamento) e o que entrou de verdade
+// (caixa, por forma). É a mesma conta do Relatório, recortada pela janela
+// daquela noite — por isso a folha de fechamento bate com o relatório do dia.
+function resumoDoTurno({
+  dia,
+  caixas = [],
+  virada = HORA_VIRADA,
+  consumos = [],
+  pagas = [],
+  abertas = [],
+  parciais = [],
+}) {
+  const { inicio, fim } = janelaDoDia(dia, caixas, virada)
+  const totalPorCliente = new Map()
+  for (const c of consumos)
+    totalPorCliente.set(
+      c.cliente_id,
+      (totalPorCliente.get(c.cliente_id) || 0) + Number(c.preco_unit) * c.quantidade
+    )
+  const parcialPorCliente = new Map()
+  for (const p of parciais)
+    parcialPorCliente.set(
+      p.cliente_id,
+      (parcialPorCliente.get(p.cliente_id) || 0) + Number(p.valor || 0)
+    )
+
+  let faturamento = 0
+  let itens = 0
+  const comandas = new Set()
+  for (const c of consumos) {
+    const t = new Date(c.created_at).getTime()
+    if (t < inicio || t > fim) continue
+    faturamento += Number(c.preco_unit) * c.quantidade
+    itens += c.quantidade
+    comandas.add(c.cliente_id)
+  }
+  const caixa = calcularCaixa({
+    pagas,
+    abertas,
+    parciais,
+    totalPorCliente,
+    parcialPorCliente,
+    inicio,
+    fim,
+  })
+  const cx = ultimoCaixaDe(caixas, dia)
+  const fundo = cx && cx.fundo_troco != null ? Number(cx.fundo_troco) : FUNDO_TROCO
+  return { inicio, fim, faturamento, itens, nComandas: comandas.size, fundo, ...caixa }
+}
+
+// Barra do caixa no topo das Comandas: o estado da noite em uma linha.
+function BarraCaixa({ caixaAberto, caixaAtrasado, diaAtual, onAbrir, onFechar }) {
+  if (caixaAtrasado) {
+    return (
+      <div className="cx-barra cx-atrasado">
+        <div className="cx-txt">
+          <span className="cx-tit">
+            ⚠️ O caixa de {diaBonito(caixaAtrasado.dia)} ficou aberto
+          </span>
+          <span className="cx-sub">
+            Feche pra conferir a gaveta daquela noite. Os números já estão
+            separados certinho — o movimento de agora conta no dia de hoje.
+          </span>
+        </div>
+        <button className="cx-btn cx-btn-alerta" onClick={onFechar}>
+          🔒 Fechar o caixa de {diaBonito(caixaAtrasado.dia)}
+        </button>
+      </div>
+    )
+  }
+  // caixa aberto e em dia: faixa fina, pra não roubar a tela de trabalho
+  if (caixaAberto) {
+    return (
+      <div className="cx-barra cx-ligado cx-compacta">
+        <div className="cx-txt">
+          <span className="cx-tit">🟢 Caixa aberto · {diaBonito(caixaAberto.dia)}</span>
+          <span className="cx-sub">desde as {hora(caixaAberto.aberto_em)}</span>
+        </div>
+        <button className="cx-btn" onClick={onFechar}>
+          🔒 Fechar caixa
+        </button>
+      </div>
+    )
+  }
+  return (
+    <div className="cx-barra">
+      <div className="cx-txt">
+        <span className="cx-tit">🔴 Caixa fechado</span>
+        <span className="cx-sub">Abra o caixa pra começar a noite de {diaBonito(diaAtual)}</span>
+      </div>
+      <button className="cx-btn cx-btn-abrir" onClick={onAbrir}>
+        ▶ Abrir o caixa de {diaBonito(diaAtual)}
+      </button>
+    </div>
+  )
+}
+
+// Folha de ABRIR o caixa. Aparece sozinha na primeira comanda/venda da noite.
+function FolhaAbrirCaixa({ dia, sugestao, comVenda, onAbrir, onAgoraNao }) {
+  const [fundo, setFundo] = useState(() => String(sugestao ?? FUNDO_TROCO))
+  const [indo, setIndo] = useState(false)
+  const valor = Number(String(fundo).replace(',', '.')) || 0
+  return (
+    <div className="pag-overlay" onClick={onAgoraNao}>
+      <div className="pag-box" onClick={(e) => e.stopPropagation()}>
+        <p className="pag-titulo">Vamos abrir o caixa de {diaBonito(dia)}?</p>
+        <p className="cx-folha-txt">
+          Daqui até você tocar em <b>Fechar caixa</b>, tudo que vender entra na
+          noite de <b>{diaBonito(dia)}</b> — mesmo depois da meia-noite.
+        </p>
+
+        <span className="cx-folha-lbl">Quanto tem de troco na gaveta?</span>
+        <div className="cx-fundo">
+          <span className="cx-fundo-cifrao">R$</span>
+          <input
+            className="cx-fundo-input"
+            type="number"
+            inputMode="decimal"
+            min="0"
+            step="10"
+            value={fundo}
+            onChange={(e) => setFundo(e.target.value)}
+          />
+        </div>
+        <span className="caixa-sub">
+          É esse valor que o app usa pra dizer quanto tem que ter na gaveta no fim
+          da noite.
+        </span>
+
+        <button
+          className="pag-confirmar"
+          disabled={indo}
+          onClick={() => {
+            setIndo(true)
+            onAbrir(valor)
+          }}
+        >
+          {indo ? 'Abrindo…' : `▶ Abrir o caixa de ${diaBonito(dia)}`}
+        </button>
+        <button className="pag-cancelar" onClick={onAgoraNao}>
+          {comVenda ? 'Agora não — só lançar' : 'Agora não'}
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// Folha de FECHAR o caixa: mostra o fechamento da noite e confere a gaveta.
+function FolhaFecharCaixa({ caixa, resumo, atrasado, virada = HORA_VIRADA, onFechar, onCancelar }) {
+  const [contado, setContado] = useState('')
+  const [indo, setIndo] = useState(false)
+  const esperado = resumo.fundo + resumo.dinheiro
+  const temContagem = String(contado).trim() !== ''
+  const diferenca = temContagem ? (Number(String(contado).replace(',', '.')) || 0) - esperado : 0
+  return (
+    <div className="pag-overlay" onClick={onCancelar}>
+      <div className="pag-box cx-fechar-box" onClick={(e) => e.stopPropagation()}>
+        <p className="pag-titulo">🧾 Fechar o caixa de {diaBonito(caixa.dia)}</p>
+        <span className="cx-janela">
+          das {hora(resumo.inicio)} às {hora(resumo.fim)}
+          {atrasado ? '' : ' (agora)'}
+        </span>
+
+        {atrasado && (
+          <p className="cx-folha-aviso">
+            Esta noite já passou. Vou fechar com o movimento até as{' '}
+            {String(virada).padStart(2, '0')}:00 — o que veio depois já está
+            contando no dia seguinte, nada muda de lugar.
+          </p>
+        )}
+
+        <div className="cx-linhas">
+          <div className="cf-linha">
+            <span>Faturamento (saiu)</span>
+            <b>{money(resumo.faturamento)}</b>
+          </div>
+          <div className="cf-linha">
+            <span>Recebido (entrou)</span>
+            <b>{money(resumo.recebido)}</b>
+          </div>
+          {resumo.formas.map((f) => (
+            <div key={f.id || 'outro'} className="cf-linha cf-fina">
+              <span>{rotuloForma(f.id)}</span>
+              <b>{money(f.valor)}</b>
+            </div>
+          ))}
+          {resumo.emAberto > 0.009 && (
+            <div className="cf-linha cf-aberto">
+              <span>Fica em aberto ({resumo.nAberto})</span>
+              <b>{money(resumo.emAberto)}</b>
+            </div>
+          )}
+        </div>
+
+        <div className="cx-gaveta">
+          <span className="kpi-lbl">💵 Tem que ter na gaveta</span>
+          <strong className="kpi-val">{money(esperado)}</strong>
+          <span className="caixa-sub">
+            troco {money(resumo.fundo)} + vendas em dinheiro {money(resumo.dinheiro)}
+          </span>
+          <div className="cx-fundo">
+            <span className="cx-fundo-cifrao">R$</span>
+            <input
+              className="cx-fundo-input"
+              type="number"
+              inputMode="decimal"
+              placeholder="contei…"
+              value={contado}
+              onChange={(e) => setContado(e.target.value)}
+            />
+          </div>
+          {temContagem && (
+            <span
+              className={
+                Math.abs(diferenca) < 0.01
+                  ? 'cx-dif cx-dif-ok'
+                  : diferenca > 0
+                    ? 'cx-dif cx-dif-sobra'
+                    : 'cx-dif cx-dif-falta'
+              }
+            >
+              {Math.abs(diferenca) < 0.01
+                ? '✓ Bateu certinho'
+                : diferenca > 0
+                  ? `Sobrando ${money(diferenca)} na gaveta`
+                  : `Faltando ${money(-diferenca)} na gaveta`}
+            </span>
+          )}
+        </div>
+
+        {resumo.emAberto > 0.009 && (
+          <p className="cx-folha-txt">
+            As comandas que ficarem abertas continuam abertas — quando forem pagas,
+            o dinheiro entra no caixa do dia em que você receber.
+          </p>
+        )}
+
+        <button
+          className="pag-confirmar"
+          disabled={indo}
+          onClick={() => {
+            setIndo(true)
+            onFechar(temContagem ? Number(String(contado).replace(',', '.')) || 0 : null)
+          }}
+        >
+          {indo ? 'Fechando…' : '🔒 Confirmar fechamento'}
+        </button>
+        <button className="pag-cancelar" onClick={onCancelar}>
+          Ainda não
+        </button>
+      </div>
+    </div>
+  )
+}
 
 // marcas populares no Brasil — pra autocompletar e corrigir digitação
 const MARCAS_POPULARES = [
@@ -2548,6 +3101,8 @@ const HIST_INFO = {
   renomear_cliente: { icone: '✏️' },
   venda_balcao: { icone: '⚡' },
   perda: { icone: '🗑️', cls: 'hi-rem' },
+  abrir_caixa: { icone: '🔓' },
+  fechar_caixa: { icone: '🔒' },
   add_produto: { icone: '🆕' },
   remover_produto: { icone: '❌' },
   editar_produto: { icone: '✏️' },
@@ -2566,6 +3121,8 @@ const PASTA_HIST = {
   renomear_cliente: 'comanda',
   venda_balcao: 'balcao',
   perda: 'perdas',
+  abrir_caixa: 'caixa',
+  fechar_caixa: 'caixa',
   add_produto: 'estoque',
   remover_produto: 'estoque',
   editar_produto: 'estoque',
@@ -2639,7 +3196,7 @@ function AbaHistorico({ historico, onReverter }) {
 
   // separa o histórico nas 3 pastas fixas
   const grupos = useMemo(() => {
-    const g = { comanda: [], balcao: [], estoque: [], perdas: [] }
+    const g = { comanda: [], balcao: [], estoque: [], perdas: [], caixa: [] }
     for (const h of historico) (g[pastaDeHist(h)] || g.comanda).push(h)
     return g
   }, [historico])
@@ -2663,6 +3220,7 @@ function AbaHistorico({ historico, onReverter }) {
     { id: 'balcao', icone: '⚡', nome: 'Vendas rápidas', n: grupos.balcao.length },
     { id: 'estoque', icone: '📦', nome: 'Estoque / Produtos', n: grupos.estoque.length },
     { id: 'perdas', icone: '🗑️', nome: 'Perdas', n: grupos.perdas.length },
+    { id: 'caixa', icone: '🔐', nome: 'Caixa (abriu / fechou)', n: grupos.caixa.length },
   ]
   const plural = (n) => (n === 1 ? 'movimentação' : 'movimentações')
   const estadoDe = (itens) => {
@@ -4764,23 +5322,27 @@ function hojeISO() {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
 }
 
-// janela [inicio, fim] em ms. "Hoje" = do começo do dia até agora; 7d/30d = janelas
-// corridas terminando agora; "dia" = um dia específico do calendário (00:00→23:59).
-function janelaPeriodo(periodo, dia) {
-  const agora = new Date()
-  if (periodo === 'dia' && dia) {
-    const [a, m, d] = dia.split('-').map(Number)
-    const ini = new Date(a, m - 1, d, 0, 0, 0, 0)
-    const fim = new Date(a, m - 1, d, 23, 59, 59, 999)
-    return { inicio: ini.getTime(), fim: fim.getTime() }
-  }
-  if (periodo === 'hoje') {
-    const d = new Date(agora)
-    d.setHours(0, 0, 0, 0)
-    return { inicio: d.getTime(), fim: agora.getTime() }
-  }
+// Janela [inicio, fim] em ms — agora medida em NOITES DE BAR, não em dias do
+// relógio (ver "O DIA DO BAR" no começo do arquivo):
+//   "hoje"  = a noite que está rolando (do fechamento da anterior até agora);
+//   "dia"   = uma noite escolhida no calendário, inteira, madrugada incluída;
+//   7d/30d  = as últimas 7/30 noites, começando no início da mais antiga.
+function janelaPeriodo(periodo, dia, caixas = [], virada = HORA_VIRADA, diaAtual = null) {
+  const agora = Date.now()
+  const atual = diaAtual || diaAtualDoBar(caixas, virada, agora)
+  if (periodo === 'dia' && dia) return janelaDoDia(dia, caixas, virada, agora)
+  if (periodo === 'hoje') return janelaDoDia(atual, caixas, virada, agora)
   const dias = periodo === '7d' ? 7 : 30
-  return { inicio: agora.getTime() - dias * 24 * 60 * 60 * 1000, fim: agora.getTime() }
+  const { inicio } = janelaDoDia(somaDia(atual, -(dias - 1)), caixas, virada, agora)
+  return { inicio, fim: agora }
+}
+
+// "das 19:04 às 03:12" — avisando quando a noite atravessa a meia-noite
+function janelaTexto({ inicio, fim }) {
+  const a = new Date(inicio)
+  const b = new Date(fim)
+  const virou = a.getDate() !== b.getDate()
+  return `das ${hora(a)} às ${hora(b)}${virou ? ' do dia seguinte' : ''}`
 }
 
 // 'AAAA-MM-DD' → '01/08' pra mostrar bonito no título
@@ -4855,9 +5417,33 @@ function calcularCaixa({ pagas, abertas, parciais, totalPorCliente, parcialPorCl
   return { recebido, emAberto, nAberto, nEsperando, formas, dinheiro: porForma.get('dinheiro') || 0 }
 }
 
-function Relatorio({ consumos, cervejas = [], pagas = [], abertas = [], perdas = [], parciais = [] }) {
+function Relatorio({
+  consumos,
+  cervejas = [],
+  pagas = [],
+  abertas = [],
+  perdas = [],
+  parciais = [],
+  caixas = [],
+  virada = HORA_VIRADA,
+  temCaixas = false,
+  caixaAberto = null,
+  caixaAtrasado = null,
+  diaAtual = null,
+  onAbrirCaixa = null,
+  onFecharCaixa = null,
+}) {
   const [periodo, setPeriodo] = useState('hoje')
-  const [dia, setDia] = useState(hojeISO) // dia escolhido no calendário (modo 'dia')
+  const hojeBar = diaAtual || diaAtualDoBar(caixas, virada)
+  // noite escolhida no calendário (modo 'dia') — começa na de hoje
+  const [dia, setDia] = useState(() => hojeBar)
+  // o turno daquela noite (pra mostrar o horário real de abertura/fechamento)
+  const caixaDoPeriodo = ultimoCaixaDe(caixas, periodo === 'dia' ? dia : hojeBar)
+  // troco que começou aquela gaveta: o que ele digitou ao abrir o caixa
+  const fundoDoDia =
+    caixaDoPeriodo && caixaDoPeriodo.fundo_troco != null
+      ? Number(caixaDoPeriodo.fundo_troco)
+      : FUNDO_TROCO
 
   // total de cada comanda (soma dos consumos dela) — serve pro caixa
   const totalPorCliente = useMemo(() => {
@@ -4886,7 +5472,7 @@ function Relatorio({ consumos, cervejas = [], pagas = [], abertas = [], perdas =
 
   // CAIXA do período (ver calcularCaixa, logo acima do Relatório)
   const caixa = useMemo(() => {
-    const { inicio, fim } = janelaPeriodo(periodo, dia)
+    const { inicio, fim } = janelaPeriodo(periodo, dia, caixas, virada, hojeBar)
     return calcularCaixa({
       pagas,
       abertas,
@@ -4896,7 +5482,18 @@ function Relatorio({ consumos, cervejas = [], pagas = [], abertas = [], perdas =
       inicio,
       fim,
     })
-  }, [pagas, abertas, parciais, totalPorCliente, parcialPorCliente, periodo, dia])
+  }, [
+    pagas,
+    abertas,
+    parciais,
+    totalPorCliente,
+    parcialPorCliente,
+    periodo,
+    dia,
+    caixas,
+    virada,
+    hojeBar,
+  ])
 
   // Quem está devendo agora, com nome — o "3 comandas sem pagar" vira lista.
   // É o que FALTA: o que o amigo já pagou em parte não pode aparecer como dívida.
@@ -4926,7 +5523,7 @@ function Relatorio({ consumos, cervejas = [], pagas = [], abertas = [], perdas =
   }, [cervejas])
 
   const dados = useMemo(() => {
-    const { inicio, fim } = janelaPeriodo(periodo, dia)
+    const { inicio, fim } = janelaPeriodo(periodo, dia, caixas, virada, hojeBar)
     const noPeriodo = consumos.filter((c) => {
       const t = new Date(c.created_at).getTime()
       return t >= inicio && t <= fim
@@ -4982,11 +5579,11 @@ function Relatorio({ consumos, cervejas = [], pagas = [], abertas = [], perdas =
       },
       vazio: noPeriodo.length === 0,
     }
-  }, [consumos, custoPorNome, clientePorId, periodo, dia])
+  }, [consumos, custoPorNome, clientePorId, periodo, dia, caixas, virada, hojeBar])
 
   // Perdas do período — bloco à parte (NUNCA entra no faturamento/venda)
   const perdasResumo = useMemo(() => {
-    const { inicio, fim } = janelaPeriodo(periodo, dia)
+    const { inicio, fim } = janelaPeriodo(periodo, dia, caixas, virada, hojeBar)
     let qtd = 0
     let valor = 0
     const porProd = new Map()
@@ -4999,7 +5596,7 @@ function Relatorio({ consumos, cervejas = [], pagas = [], abertas = [], perdas =
       porProd.get(p.beer_nome).qtd += p.quantidade
     }
     return { qtd, valor, lista: [...porProd.values()].sort((a, b) => b.qtd - a.qtd) }
-  }, [perdas, periodo, dia])
+  }, [perdas, periodo, dia, caixas, virada, hojeBar])
 
   return (
     <main className="conteudo">
@@ -5015,6 +5612,16 @@ function Relatorio({ consumos, cervejas = [], pagas = [], abertas = [], perdas =
         ))}
       </div>
 
+      {periodo === 'hoje' && temCaixas && (
+        <BarraCaixa
+          caixaAberto={caixaAberto}
+          caixaAtrasado={caixaAtrasado}
+          diaAtual={hojeBar}
+          onAbrir={onAbrirCaixa}
+          onFechar={onFecharCaixa}
+        />
+      )}
+
       {periodo === 'dia' && (
         <div className="rel-dia">
           <span className="rel-dia-lbl">🧾 Fechamento do dia</span>
@@ -5022,11 +5629,29 @@ function Relatorio({ consumos, cervejas = [], pagas = [], abertas = [], perdas =
             className="rel-dia-input"
             type="date"
             value={dia}
-            max={hojeISO()}
+            max={hojeBar > hojeISO() ? hojeBar : hojeISO()}
             onChange={(e) => setDia(e.target.value)}
           />
         </div>
       )}
+
+      {/* a noite de verdade: das X às Y, madrugada incluída */}
+      <p className="rel-janela">
+        {periodo === '7d' || periodo === '30d'
+          ? `Últimas ${periodo === '7d' ? 7 : 30} noites, até agora.`
+          : `Noite de ${diaBonito(periodo === 'dia' ? dia : hojeBar)} · ${janelaTexto(
+              janelaPeriodo(periodo, dia, caixas, virada, hojeBar)
+            )}`}
+        {caixaDoPeriodo && (periodo === 'hoje' || periodo === 'dia') && (
+          <>
+            {' '}
+            <span className="rel-janela-cx">
+              (caixa aberto {hora(caixaDoPeriodo.aberto_em)}
+              {caixaDoPeriodo.fechado_em ? `, fechado ${hora(caixaDoPeriodo.fechado_em)}` : ''})
+            </span>
+          </>
+        )}
+      </p>
 
       {dados.vazio && perdasResumo.qtd === 0 ? (
         <p className="vazio">
@@ -5116,21 +5741,40 @@ function Relatorio({ consumos, cervejas = [], pagas = [], abertas = [], perdas =
             {(periodo === 'hoje' || periodo === 'dia') && (
               <div className="caixa-card caixa-gaveta">
                 <span className="kpi-lbl">💵 Tem que ter na gaveta</span>
-                <strong className="kpi-val">{money(FUNDO_TROCO + caixa.dinheiro)}</strong>
+                <strong className="kpi-val">{money(fundoDoDia + caixa.dinheiro)}</strong>
                 <div className="caixa-formas">
                   <div className="cf-linha">
                     <span>Troco que começa o dia</span>
-                    <b>{money(FUNDO_TROCO)}</b>
+                    <b>{money(fundoDoDia)}</b>
                   </div>
                   <div className="cf-linha">
                     <span>Vendas em dinheiro</span>
                     <b>{money(caixa.dinheiro)}</b>
                   </div>
+                  {/* o que ele contou de verdade na hora de fechar o caixa */}
+                  {caixaDoPeriodo && caixaDoPeriodo.contado != null && (
+                    <div className="cf-linha">
+                      <span>Contou na gaveta</span>
+                      <b>{money(caixaDoPeriodo.contado)}</b>
+                    </div>
+                  )}
                 </div>
-                <span className="caixa-sub">
-                  Conte a gaveta no fim do dia: sobrando ou faltando, a diferença é
-                  erro de troco.
-                </span>
+                {caixaDoPeriodo && caixaDoPeriodo.contado != null ? (
+                  <span className="caixa-sub">
+                    {(() => {
+                      const dif = Number(caixaDoPeriodo.contado) - (fundoDoDia + caixa.dinheiro)
+                      if (Math.abs(dif) < 0.01) return '✓ A gaveta bateu certinho.'
+                      return dif > 0
+                        ? `Sobrou ${money(dif)} na gaveta — provável erro de troco.`
+                        : `Faltou ${money(-dif)} na gaveta — provável erro de troco.`
+                    })()}
+                  </span>
+                ) : (
+                  <span className="caixa-sub">
+                    Conte a gaveta no fim do dia: sobrando ou faltando, a diferença é
+                    erro de troco.
+                  </span>
+                )}
               </div>
             )}
             {periodo !== 'dia' && (

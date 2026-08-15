@@ -4107,3 +4107,209 @@ input[type='number'] {
 }
 .rel-perda-nome { font-weight: 700; }
 .rel-perda-qtd { color: var(--muted); font-weight: 700; flex-shrink: 0; }
+
+/* ============================================================
+   TURNO DE CAIXA (abrir / fechar o dia)
+   ============================================================ */
+
+/* barra de estado no topo das Comandas e do Relatório */
+.cx-barra {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 12px;
+  padding: 12px 14px;
+  background: var(--card);
+  border-radius: 14px;
+  border-left: 5px solid var(--card2);
+}
+.cx-ligado {
+  border-left-color: var(--accent2);
+}
+.cx-atrasado {
+  border-left-color: var(--danger);
+  background: rgba(224, 83, 61, 0.12);
+}
+.cx-txt {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.cx-tit {
+  font-size: 15px;
+  font-weight: 800;
+}
+.cx-sub {
+  font-size: 12px;
+  line-height: 1.4;
+  font-weight: 600;
+  color: var(--muted);
+}
+.cx-btn {
+  width: 100%;
+  padding: 12px;
+  border: none;
+  border-radius: 11px;
+  background: var(--card2);
+  color: var(--text);
+  font-size: 15px;
+  font-weight: 800;
+}
+.cx-btn-abrir {
+  background: var(--accent2);
+  color: #06210f;
+}
+.cx-btn-alerta {
+  background: var(--danger);
+  color: #2a0d07;
+}
+/* caixa aberto e em dia: uma faixa fina, texto à esquerda e botão à direita */
+.cx-compacta {
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+}
+.cx-compacta .cx-txt {
+  flex: 1;
+  min-width: 0;
+}
+/* celular estreito: o texto encurta com "…" em vez de empurrar o botão */
+.cx-compacta .cx-tit,
+.cx-compacta .cx-sub {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cx-compacta .cx-tit {
+  font-size: 14px;
+}
+.cx-compacta .cx-btn {
+  width: auto;
+  flex-shrink: 0;
+  padding: 10px 12px;
+  font-size: 13px;
+}
+
+/* linha "Noite de 14/08 · das 19:04 às 03:12" no Relatório */
+.rel-janela {
+  margin: -8px 0 14px;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.45;
+  color: var(--muted);
+}
+.rel-janela-cx {
+  color: var(--accent);
+}
+
+/* folhas de abrir / fechar o caixa (usam .pag-overlay / .pag-box) */
+.cx-folha-txt {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  text-align: center;
+  color: var(--muted);
+}
+.cx-folha-txt b {
+  color: var(--text);
+}
+.cx-folha-aviso {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 11px;
+  background: rgba(224, 83, 61, 0.14);
+  font-size: 13px;
+  line-height: 1.45;
+  font-weight: 600;
+}
+.cx-folha-lbl {
+  font-size: 14px;
+  font-weight: 800;
+  color: var(--muted);
+  text-align: center;
+}
+.cx-fundo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border: 2px solid var(--card2);
+  border-radius: 12px;
+  background: var(--bg);
+}
+.cx-fundo-cifrao {
+  font-size: 17px;
+  font-weight: 800;
+  color: var(--muted);
+}
+.cx-fundo-input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font-size: 24px;
+  font-weight: 900;
+  padding: 8px 0;
+  outline: none;
+}
+
+/* fechamento: o resumo da noite dentro da folha */
+.cx-fechar-box {
+  max-height: 92vh;
+  overflow-y: auto;
+}
+.cx-janela {
+  text-align: center;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--accent);
+  margin-top: -6px;
+}
+.cx-linhas {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px;
+  background: var(--bg);
+  border-radius: 12px;
+}
+.cx-linhas .cf-fina {
+  font-size: 13px;
+  color: var(--muted);
+  padding-left: 10px;
+}
+.cx-linhas .cf-aberto {
+  border-top: 1px solid var(--card2);
+  padding-top: 8px;
+  color: #efb27f;
+}
+.cx-gaveta {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px;
+  border-radius: 12px;
+  background: var(--bg);
+  border-left: 5px solid var(--accent);
+}
+.cx-dif {
+  font-size: 14px;
+  font-weight: 800;
+  text-align: center;
+  padding: 8px;
+  border-radius: 10px;
+}
+.cx-dif-ok {
+  color: #7fe0a0;
+  background: rgba(47, 174, 91, 0.14);
+}
+.cx-dif-sobra {
+  color: var(--accent);
+  background: rgba(212, 162, 60, 0.14);
+}
+.cx-dif-falta {
+  color: #ef7f70;
+  background: rgba(224, 83, 61, 0.14);
+}
