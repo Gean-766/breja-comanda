@@ -224,7 +224,6 @@ export default function App({ distribuidora = null, onSair = null }) {
   const [perdas, setPerdas] = useState([]) // perdas: quebra/vencimento/estrago (módulo Estoque)
   const [caixas, setCaixas] = useState([]) // turnos de caixa (abertura/fechamento do dia)
   const [caixaSheet, setCaixaSheet] = useState(null) // folha de abrir/fechar o caixa
-  const [caixaAdiado, setCaixaAdiado] = useState(null) // noite em que ele dispensou o convite
   const [temCaixas, setTemCaixas] = useState(false) // a tabela `caixas` já existe no banco?
   const [busca, setBusca] = useState('')
   const [novoNome, setNovoNome] = useState('')
@@ -951,13 +950,35 @@ export default function App({ distribuidora = null, onSair = null }) {
     return true
   }
 
-  // Antes da primeira venda da noite, oferece abrir o caixa. Se ele disser
-  // "agora não", a venda acontece do mesmo jeito: o caixa organiza o relatório,
-  // nunca trava o bar. E o convite não volta a aparecer na mesma noite.
+  // NENHUMA VENDA FORA DO CAIXA.
+  //
+  // Antes existia um "agora não — só lançar": a folha saía do caminho e a venda
+  // acontecia com o caixa fechado. O problema é que aquela venda não tinha
+  // gaveta pra bater com ela — nem troco declarado, nem contagem no fim. O dono
+  // cortou a saída: "todas as vendas têm que ser dentro de caixa aberto e
+  // fechado, porque a movimentação tem que bater".
+  //
+  // Agora o convite não tem porta lateral: ou abre o caixa, ou a venda não
+  // acontece. Cancelar fecha a folha e a ação NÃO roda.
+  //
+  // Única exceção: loja cujo banco ainda não tem a tabela `caixas` (o SQL
+  // `caixa-turno` não rodou). Não dá pra exigir um caixa que o banco não sabe
+  // guardar — aí segue direto, como antes.
   function comCaixa(acao) {
-    // sem a tabela no banco (SQL ainda não rodou), nem convida: o relatório já
-    // está certo pela hora da virada e a venda não pode esperar por nada
-    if (!temCaixas || caixaAberto || caixaAdiado === diaAtual) {
+    if (!temCaixas) {
+      acao()
+      return
+    }
+    // Caixa de uma noite ANTERIOR esquecido aberto. Ele conta como "aberto",
+    // mas é da noite passada: a de hoje continuaria sem troco declarado e sem
+    // contagem no fim — o mesmo furo de vender fora do caixa. E o banco só
+    // deixa um caixa aberto por vez, então não dá pra abrir o de hoje por cima.
+    // Fecha aquele primeiro; ao terminar, emenda na abertura do de hoje.
+    if (caixaAtrasado) {
+      setCaixaSheet({ modo: 'fechar', caixa: caixaAtrasado, aoContinuar: acao })
+      return
+    }
+    if (caixaAberto) {
       acao()
       return
     }
@@ -1191,7 +1212,11 @@ export default function App({ distribuidora = null, onSair = null }) {
           parciais={parciais.filter((p) => p.cliente_id === clienteAberto.id)}
           estoque={estoquePorId}
           noiteAntiga={noiteAntiga}
-          onAdd={adicionarConsumo}
+          // Lançar numa comanda JÁ ABERTA também é venda, e passava sem checar
+          // caixa nenhum: bastava ter uma comanda da noite passada (ou a que
+          // ele deixa pronta pro freguês de todo dia) pra vender com o caixa
+          // fechado. Aqui é a mesma porta do "+ Nova" e da venda rápida.
+          onAdd={(id, c, q) => comCaixa(() => adicionarConsumo(id, c, q))}
           onRemove={removerConsumo}
           onPagarParte={pagarParte}
           onFechar={fecharConta}
@@ -1221,12 +1246,8 @@ export default function App({ distribuidora = null, onSair = null }) {
             const ok = await abrirCaixa(fundo)
             if (ok && acao) acao()
           }}
-          onAgoraNao={() => {
-            const acao = caixaSheet.aoContinuar
-            setCaixaSheet(null)
-            setCaixaAdiado(caixaSheet.dia) // não insiste de novo nesta noite
-            if (acao) acao()
-          }}
+          // cancelar fecha a folha e a venda NÃO acontece: sem caixa, sem venda
+          onCancelar={() => setCaixaSheet(null)}
         />
       )}
 
@@ -1238,8 +1259,13 @@ export default function App({ distribuidora = null, onSair = null }) {
           virada={virada}
           onFechar={async (contado) => {
             const cx = caixaSheet.caixa
+            const acao = caixaSheet.aoContinuar
             setCaixaSheet(null)
-            await fecharCaixa(cx, contado)
+            const ok = await fecharCaixa(cx, contado)
+            // veio de uma venda travada pelo caixa atrasado: fechada aquela
+            // noite, emenda direto na abertura da de hoje (`diaAtual` não muda
+            // ao fechar um caixa de noite passada — ele já era o de hoje)
+            if (ok && acao) setCaixaSheet({ modo: 'abrir', dia: diaAtual, aoContinuar: acao })
           }}
           onCancelar={() => setCaixaSheet(null)}
         />
@@ -1395,15 +1421,23 @@ function BarraCaixa({ caixaAberto, caixaAtrasado, diaAtual, onAbrir, onFechar })
   )
 }
 
-// Folha de ABRIR o caixa. Aparece sozinha na primeira comanda/venda da noite.
-function FolhaAbrirCaixa({ dia, sugestao, comVenda, onAbrir, onAgoraNao }) {
+// Folha de ABRIR o caixa. Aparece sozinha na primeira venda da noite — e, desde
+// que a saída "agora não" caiu, ela é obrigatória: sem caixa aberto não vende
+// (ver `comCaixa`). Cancelar aqui cancela a venda, não a folha.
+function FolhaAbrirCaixa({ dia, sugestao, comVenda, onAbrir, onCancelar }) {
   const [fundo, setFundo] = useState(() => String(sugestao ?? FUNDO_TROCO))
   const [indo, setIndo] = useState(false)
   const valor = Number(String(fundo).replace(',', '.')) || 0
   return (
-    <div className="pag-overlay" onClick={onAgoraNao}>
+    <div className="pag-overlay" onClick={onCancelar}>
       <div className="pag-box" onClick={(e) => e.stopPropagation()}>
         <p className="pag-titulo">Vamos abrir o caixa de {diaBonito(dia)}?</p>
+        {comVenda && (
+          <p className="cx-folha-aviso">
+            Pra vender, o caixa precisa estar aberto — é ele que faz a
+            movimentação da noite bater com a gaveta.
+          </p>
+        )}
         <p className="cx-folha-txt">
           Daqui até você tocar em <b>Fechar caixa</b>, tudo que vender entra na
           noite de <b>{diaBonito(dia)}</b> — mesmo depois da meia-noite.
@@ -1437,8 +1471,8 @@ function FolhaAbrirCaixa({ dia, sugestao, comVenda, onAbrir, onAgoraNao }) {
         >
           {indo ? 'Abrindo…' : `▶ Abrir o caixa de ${diaBonito(dia)}`}
         </button>
-        <button className="pag-cancelar" onClick={onAgoraNao}>
-          {comVenda ? 'Agora não — só lançar' : 'Agora não'}
+        <button className="pag-cancelar" onClick={onCancelar}>
+          {comVenda ? 'Cancelar — não vou vender agora' : 'Agora não'}
         </button>
       </div>
     </div>
