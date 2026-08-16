@@ -1,14 +1,15 @@
 -- ============================================================================
---  REFINO FINANCEIRO — forma de pagamento na comanda
---  Roda no Supabase → SQL Editor → Run. Aditivo e seguro.
+--  ⚠️  ESTE ARQUIVO FOI SUBSTITUÍDO — rode o `forma-pagamento.sql`.
 --
---  Guarda COMO a comanda foi paga (dinheiro/pix/cartao) na hora de fechar.
---  Com isso o Relatório mostra "recebido por forma" e "em aberto".
---  Comandas fechadas antes disso ficam com forma nula = aparecem como "Outro".
+--  Ele fazia exatamente o mesmo que o `forma-pagamento.sql`: criar a coluna
+--  `clientes.forma_pagamento` e o índice de `pago_em`. Rodar os dois não dá
+--  erro (é tudo "if not exists"), mas ter dois arquivos fazendo a mesma coisa
+--  só faz quem vai instalar ficar na dúvida de qual é o certo.
+--
+--  O `forma-pagamento.sql` é o completo: além dessa coluna, ele cria a
+--  `pagamentos_parciais.forma` — sem ela, uma mesa dividida joga tudo na forma
+--  de quem pagou por último e a gaveta não bate.
+--
+--  Este ficou aqui só pra quem procurar pelo nome antigo não achar um vazio.
+--  Não precisa rodar nada deste arquivo.
 -- ============================================================================
-
-alter table public.clientes
-  add column if not exists forma_pagamento text;
-
--- ajuda a somar "recebido no período" rápido
-create index if not exists idx_clientes_pago on public.clientes(pago_em);

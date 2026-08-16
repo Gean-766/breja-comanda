@@ -34,7 +34,14 @@ export default defineConfig({
             options: {
               cacheName: 'supabase',
               networkTimeoutSeconds: 5,
-              expiration: { maxEntries: 200, maxAgeSeconds: 60 * 60 * 24 },
+              // Guardava 24 HORAS. Numa internet ruim — não caída, só lenta — a
+              // tela podia mostrar uma comanda de ontem parecendo normal, e o
+              // cadeado de conexão não percebia: ele testa a rede por um caminho
+              // que não passa por aqui. Era o furo exato que o cadeado existe pra
+              // tapar, pela porta que ele não vigia.
+              // 5 minutos: o suficiente pra atravessar um engasgo de sinal, curto
+              // demais pra alguém cobrar em cima de comanda velha.
+              expiration: { maxEntries: 200, maxAgeSeconds: 60 * 5 },
             },
           },
         ],

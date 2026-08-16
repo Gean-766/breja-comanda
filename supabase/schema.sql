@@ -1,7 +1,28 @@
--- ============================================================
+-- ============================================================================
 --  COMANDA 🍺  — Banco de dados (Supabase / Postgres)
---  Cole TUDO isto no Supabase: menu "SQL Editor" -> New query -> Run
--- ============================================================
+--
+--  ⚠️  LEIA ANTES DE RODAR
+--  ------------------------------------------------------------------------
+--  Este é o arquivo de INSTALAÇÃO NOVA: cria as tabelas do começo. Ele é
+--  seguro (tudo é "if not exists"), mas ele NÃO libera o acesso — quem faz
+--  isso é o `multi-loja.sql`, e é ele que tranca cada loja na sua própria
+--  parte. Rode nesta ordem:
+--
+--      1. schema.sql       (este aqui — cria as tabelas)
+--      2. multi-loja.sql   (login e isolamento entre lojas)
+--      3. os módulos que o cliente tiver: estoque, caixa-turno, perdas,
+--         conta-dividida, forma-pagamento, cozinha, foto-produto…
+--
+--  HISTÓRICO: até agosto/2026 este arquivo terminava criando políticas
+--  "acesso_livre" (`using (true)`) e recriando a publicação do tempo real do
+--  zero. Fazia sentido quando o app não tinha login e o acesso era só pelo
+--  link. Hoje não faz mais, e rodá-lo assim num banco em produção:
+--    • deixaria TODAS as lojas enxergando os dados umas das outras, com a
+--      chave anon — que é pública e está dentro do JavaScript do site;
+--    • derrubaria o tempo real das tabelas criadas depois (caixas, perdas,
+--      pagamentos_parciais, estoque_entradas).
+--  As duas partes saíram daqui. O acesso agora é só pelo multi-loja.sql.
+-- ============================================================================
 
 -- 1) Cervejas (catálogo com preço)
 create table if not exists cervejas (
@@ -11,6 +32,7 @@ create table if not exists cervejas (
   preco numeric(10,2) not null default 0,
   ativo boolean not null default true,
   ordem int not null default 0,
+  cor text,
   created_at timestamptz not null default now()
 );
 
@@ -35,47 +57,11 @@ create table if not exists consumos (
 
 create index if not exists idx_consumos_cliente on consumos(cliente_id);
 
--- 4) Segurança: como NÃO tem login (só o link), liberamos o acesso público.
---    (A chave usada no site é a "anon", feita para ser pública.)
-alter table cervejas enable row level security;
-alter table clientes enable row level security;
-alter table consumos enable row level security;
-
-drop policy if exists "acesso_livre" on cervejas;
-drop policy if exists "acesso_livre" on clientes;
-drop policy if exists "acesso_livre" on consumos;
-
-create policy "acesso_livre" on cervejas for all using (true) with check (true);
-create policy "acesso_livre" on clientes for all using (true) with check (true);
-create policy "acesso_livre" on consumos for all using (true) with check (true);
-
--- 5) Cervejas iniciais (ajuste os preços/tamanhos depois na aba "Produtos" do app)
-insert into cervejas (nome, tamanho, preco, ordem) values
-  ('Brahma',    'Lata', 5.00, 0),
-  ('Original',  'Lata', 7.00, 1),
-  ('Heineken',  'Lata', 8.00, 2),
-  ('Spaten',    'Lata', 7.00, 3),
-  ('Antarctica','Lata', 5.00, 4);
-
--- ============================================================
--- 6) ATUALIZAÇÃO (rode isto uma vez no SQL Editor):
---    - coluna de cor do card  - tempo real entre celulares
--- ============================================================
-alter table cervejas add column if not exists cor text;
-
--- Tempo real entre celulares: recria a publicação com as 3 tabelas (garantido).
-drop publication if exists supabase_realtime;
-create publication supabase_realtime for table clientes, consumos, cervejas;
-
--- ============================================================
--- 7) HISTÓRICO de movimentações (auditoria + desfazer)
---    Toda ação (abrir/excluir comanda, lançar/remover item, mexer
---    em produto/preço) grava uma linha aqui. O app mostra as últimas
---    24h; o banco guarda ~30 dias (limpeza automática). "payload"
---    guarda o necessário pra DESFAZER (ex: a pessoa e todo o consumo
---    dela). "autor" fica pronto pra quando houver login dos garçons.
---    >> Rode este bloco uma vez no SQL Editor. <<
--- ============================================================
+-- 4) Histórico de movimentações (auditoria + desfazer)
+--    Toda ação (abrir/excluir comanda, lançar/remover item, mexer em
+--    produto/preço) grava uma linha aqui. O app mostra as últimas 24h; o banco
+--    guarda ~30 dias (limpeza automática). "payload" guarda o necessário pra
+--    DESFAZER (ex: a pessoa e todo o consumo dela).
 create table if not exists historico (
   id uuid primary key default gen_random_uuid(),
   tipo text not null,                 -- abrir_cliente, excluir_cliente, etc.
@@ -87,10 +73,44 @@ create table if not exists historico (
 );
 create index if not exists idx_historico_data on historico(created_at desc);
 
+-- 5) RLS LIGADO, sem nenhuma política.
+--    Ligar sem política = ninguém entra. É de propósito: o banco fica trancado
+--    até o multi-loja.sql dizer quem pode ver o quê. Um banco recém-criado que
+--    não abre é um problema visível; um que abre pra todo mundo, não.
+alter table cervejas  enable row level security;
+alter table clientes  enable row level security;
+alter table consumos  enable row level security;
 alter table historico enable row level security;
-drop policy if exists "acesso_livre" on historico;
-create policy "acesso_livre" on historico for all using (true) with check (true);
 
--- inclui o historico no tempo real
-drop publication if exists supabase_realtime;
-create publication supabase_realtime for table clientes, consumos, cervejas, historico;
+-- Faxina: se este banco já rodou a versão antiga deste arquivo, as políticas
+-- "acesso_livre" ainda estão lá deixando tudo aberto. Tira.
+drop policy if exists "acesso_livre" on cervejas;
+drop policy if exists "acesso_livre" on clientes;
+drop policy if exists "acesso_livre" on consumos;
+drop policy if exists "acesso_livre" on historico;
+
+-- 6) Tempo real entre celulares.
+--    ADITIVO: adiciona uma tabela por vez, sem recriar a publicação. Recriar
+--    derrubaria o tempo real das tabelas dos módulos (caixas, perdas,
+--    pagamentos_parciais, estoque_entradas), que entram nos outros arquivos.
+do $$
+declare t text;
+begin
+  if not exists (select 1 from pg_publication where pubname = 'supabase_realtime') then
+    create publication supabase_realtime;
+  end if;
+  foreach t in array array['clientes', 'consumos', 'cervejas', 'historico'] loop
+    begin
+      execute format('alter publication supabase_realtime add table %I', t);
+    exception
+      when duplicate_object then null;  -- já estava na publicação, tudo certo
+    end;
+  end loop;
+end $$;
+
+-- ####  FIM  ####
+-- PRÓXIMO PASSO OBRIGATÓRIO: rodar o `multi-loja.sql`. Até lá o banco está
+-- trancado e o app não vai enxergar nada — o que é o esperado.
+--
+-- Confere o que está trancado:
+--   select tablename, policyname, roles from pg_policies where schemaname = 'public';

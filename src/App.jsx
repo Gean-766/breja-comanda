@@ -361,14 +361,21 @@ export default function App({ distribuidora = null, onSair = null }) {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'perdas' }, recarregar)
       .subscribe()
 
-    // rede de segurança: se o tempo real cair (celular parado/bloqueado),
-    // recarrega ao voltar pro app e a cada 4s enquanto está aberto
+    // Rede de segurança pro caso do tempo real cair (celular parado/bloqueado).
+    // Recarrega ao voltar pro app — isso é imediato e é o que mais importa — e,
+    // enquanto a tela fica aberta, de tempos em tempos.
+    //
+    // Era de 4 em 4 segundos. Cada recarga são 10 consultas, então dava ~9.000
+    // por hora em CADA celular, com o tamanho crescendo junto com o histórico de
+    // vendas. Como o tempo real já avisa de qualquer mudança em menos de um
+    // segundo, isto aqui é só o plano B: 15s dá a mesma proteção e derruba três
+    // quartos do tráfego. Voltar pro app continua recarregando na hora.
     const aoVoltar = () => {
       if (document.visibilityState === 'visible') carregar()
     }
     document.addEventListener('visibilitychange', aoVoltar)
     window.addEventListener('focus', aoVoltar)
-    const intervalo = setInterval(aoVoltar, 4000)
+    const intervalo = setInterval(aoVoltar, 15000)
 
     return () => {
       clearTimeout(t)
@@ -1196,6 +1203,7 @@ export default function App({ distribuidora = null, onSair = null }) {
             consumos={consumos}
             setConsumos={setConsumos}
             clientes={clientes}
+            virada={virada}
             onErro={erro}
           />
         ) : (
@@ -3208,11 +3216,22 @@ function AbaCervejas({ cervejas, setCervejas, onErro, onLog }) {
     if (!nm) return
     const tam = editTam.trim()
     const antigo = cervejas.find((c) => c.id === editId)
+    const de = antigo ? (antigo.tamanho ? `${antigo.nome} ${antigo.tamanho}` : antigo.nome) : null
+    const para = tam ? `${nm} ${tam}` : nm
     const { error } = await supabase
       .from('cervejas')
       .update({ nome: nm, tamanho: tam })
       .eq('id', editId)
     if (error) return onErro('⚠️ Não salvou a edição. Tente de novo.')
+    // As vendas guardam o NOME do produto, não o id (`consumos.beer_nome`). Trocar
+    // só o nome aqui deixava as vendas antigas com o nome velho: o estoque parava
+    // de descontá-las e o "Mais vendidos" mostrava o mesmo produto partido em dois.
+    // O renomear do Estoque e o desfazer do Histórico já levavam o histórico junto
+    // — só este aqui não levava.
+    if (de && de !== para) {
+      await supabase.from('consumos').update({ beer_nome: para }).eq('beer_nome', de)
+      await supabase.from('perdas').update({ beer_nome: para }).eq('beer_nome', de)
+    }
     setCervejas((cs) =>
       cs.map((c) => (c.id === editId ? { ...c, nome: nm, tamanho: tam } : c))
     )
@@ -3649,7 +3668,7 @@ function haQuanto(ts) {
   return h + ' h' + (min % 60 ? ' ' + (min % 60) + 'min' : '')
 }
 
-function AbaCozinha({ cervejas, setCervejas, consumos, setConsumos, clientes, onErro }) {
+function AbaCozinha({ cervejas, setCervejas, consumos, setConsumos, clientes, virada = HORA_VIRADA, onErro }) {
   const [verConfig, setVerConfig] = useState(false)
   const [verProntos, setVerProntos] = useState(false)
   const reprDe = (c) => (c.tamanho ? `${c.nome} ${c.tamanho}` : c.nome)
@@ -3667,7 +3686,10 @@ function AbaCozinha({ cervejas, setCervejas, consumos, setConsumos, clientes, on
   }, [clientes])
 
   const desde12h = Date.now() - 12 * 60 * 60 * 1000
-  const hojeIni = new Date().setHours(0, 0, 0, 0)
+  // "Prontos hoje" usava meia-noite: às 00:01 a lista zerava no meio do
+  // movimento, bem quando o cozinheiro pode precisar conferir o que já saiu.
+  // Aqui vale a mesma noite do resto do app (ver "O DIA DO BAR" lá em cima).
+  const noiteAgora = diaDoBar(Date.now(), virada)
 
   // fila: itens de cozinha, não prontos, das últimas 12h — agrupados por comanda
   const fila = useMemo(() => {
@@ -3697,10 +3719,10 @@ function AbaCozinha({ cervejas, setCervejas, consumos, setConsumos, clientes, on
           (co) =>
             reprsCozinha.has(co.beer_nome) &&
             co.pronto_em &&
-            new Date(co.pronto_em).getTime() >= hojeIni
+            diaDoBar(co.pronto_em, virada) === noiteAgora
         )
         .sort((a, b) => new Date(b.pronto_em) - new Date(a.pronto_em)),
-    [consumos, reprsCozinha]
+    [consumos, reprsCozinha, noiteAgora, virada]
   )
 
   async function marcar(ids, pronto) {
@@ -4445,7 +4467,25 @@ function AbaEstoque({ cervejas, setCervejas, entradas, setEntradas, consumos, pe
   }
 
   async function removerEntrada(id) {
-    if (!confirm('Apagar essa entrada? O saldo volta ao que era.')) return
+    // O saldo só desconta as vendas que aconteceram DEPOIS da primeira entrada
+    // do produto — ela é o marco zero da contagem. Apagando justo a mais antiga,
+    // o marco pula pra frente e as vendas que ficaram atrás param de descontar:
+    // o saldo SOBE em vez de "voltar ao que era". Só avisa quando é esse caso.
+    const alvo = entradas.find((e) => e.id === id)
+    const outras = alvo
+      ? entradas.filter((e) => e.cerveja_id === alvo.cerveja_id && e.id !== id)
+      : []
+    const ehAPrimeira =
+      alvo &&
+      outras.length > 0 &&
+      outras.every((e) => new Date(e.created_at) > new Date(alvo.created_at))
+    const pergunta = ehAPrimeira
+      ? 'Apagar essa entrada?\n\n⚠️ ATENÇÃO: ela é a PRIMEIRA contagem deste produto.\n\n' +
+        'A contagem começa a valer dela pra frente. Apagando, as vendas que ' +
+        'aconteceram antes das outras entradas param de descontar e o saldo pode ' +
+        'SUBIR em vez de voltar ao que era.\n\nTem certeza?'
+      : 'Apagar essa entrada? O saldo volta ao que era.'
+    if (!confirm(pergunta)) return
     const { error } = await supabase.from('estoque_entradas').delete().eq('id', id)
     if (error) return onErro('⚠️ Não consegui apagar. Tente de novo.')
     setEntradas((es) => es.filter((e) => e.id !== id))

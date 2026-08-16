@@ -16,6 +16,12 @@ marca o horário e fecha a conta quando paga.
 1. Entre no seu projeto Supabase.
 2. Menu **SQL Editor → New query**.
 3. Cole todo o conteúdo de `supabase/schema.sql` e clique **Run**.
+4. Faça o mesmo com `supabase/multi-loja.sql` (login + isolamento entre lojas).
+   **Sem esse segundo passo o banco fica trancado de propósito** e o app não
+   enxerga nada — o `schema.sql` cria as tabelas, mas não libera o acesso.
+5. Depois, só os módulos que o cliente contratou: `estoque.sql`,
+   `caixa-turno.sql`, `perdas.sql`, `conta-dividida.sql`, `forma-pagamento.sql`,
+   `cozinha.sql`, `foto-produto.sql`.
 
 ### 2. Chaves
 1. No Supabase: **Project Settings → API**.
