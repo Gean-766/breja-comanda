@@ -1595,25 +1595,26 @@ input[type='number'] {
   line-height: 1.45;
   color: var(--text);
 }
-.confirm-forcar {
+/* a saída legítima do bloqueio: dar entrada da mercadoria que chegou */
+.confirm-saida {
+  margin: 0;
+  padding: 10px 12px;
+  width: 100%;
+  border-radius: 12px;
+  background: rgba(212, 162, 60, 0.13);
+  color: var(--accent);
+  font-size: 14px;
+  line-height: 1.45;
+}
+.confirm-fechar {
   width: 100%;
   padding: 15px;
   border: none;
   border-radius: 14px;
-  background: var(--danger);
-  color: #fff;
-  font-size: 16px;
-  font-weight: 900;
-}
-.confirm-fechar {
-  width: 100%;
-  padding: 13px;
-  border: none;
-  border-radius: 12px;
   background: var(--card2);
   color: var(--text);
-  font-size: 15px;
-  font-weight: 800;
+  font-size: 16px;
+  font-weight: 900;
 }
 
 /* ===== Módulo Cozinha ===== */

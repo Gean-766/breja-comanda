@@ -2726,26 +2726,25 @@ function Detalhe({ cliente, loja = 'Comanda', cervejas, consumos, resumo, parcia
                   <p className="confirm-aviso">
                     {aviso.acabou ? (
                       <>
-                        Pelo sistema não tem mais <b>{reprDe(confirmar)}</b>
-                        {aviso.disponivel < 0
-                          ? ` — o saldo já está em ${aviso.disponivel}.`
-                          : ' — o saldo está zerado.'}
+                        Não tem mais <b>{reprDe(confirmar)}</b> no estoque
+                        {aviso.disponivel < 0 ? ` (saldo ${aviso.disponivel}).` : '.'}
                       </>
                     ) : (
                       <>
-                        Só tem <b>{aviso.disponivel}</b> no estoque e você está lançando{' '}
-                        <b>{aviso.pedido}</b>.
+                        Só tem <b>{aviso.disponivel}</b> de <b>{reprDe(confirmar)}</b> no
+                        estoque e você está lançando <b>{aviso.pedido}</b>.
                       </>
                     )}
                     <br />
-                    Se continuar, a venda entra no caixa mas não tem de onde sair do
-                    estoque: <b>os dois deixam de bater</b>.
+                    Não dá pra vender o que não tem: entraria dinheiro no caixa sem ter
+                    de onde sair da geladeira.
                   </p>
-                  <button className="confirm-forcar" onClick={lancar}>
-                    Continuar e lançar
-                  </button>
+                  <p className="confirm-saida">
+                    <b>Chegou mercadoria?</b> Dá a entrada dele na aba <b>Estoque</b> e ele
+                    volta a lançar na hora.
+                  </p>
                   <button className="confirm-fechar" onClick={() => setConfirmar(null)}>
-                    ✕ Fechar sem lançar
+                    Entendi
                   </button>
                 </>
               ) : (
@@ -2869,8 +2868,17 @@ function VendaBalcao({ cervejas, estoque = new Map(), onVender, onVoltar }) {
   const [busca, setBusca] = useState('')
   const [confVenda, setConfVenda] = useState(false) // confirmação antes de fechar a venda
   const [dividirN, setDividirN] = useState(1) // dividir a venda entre N pessoas (caixinha)
+  const [bloqueado, setBloqueado] = useState(null) // produto barrado por falta de estoque
 
+  // Aqui o toque no card já joga no carrinho — não tem confirmação no meio como
+  // na comanda. Então a barreira do estoque tem que estar NESTE toque: é por
+  // aqui que uma venda sem saldo entrava sem ninguém ver.
   function add(c) {
+    const aviso = avisoEstoque(estoque.get(c.id), (carrinho[c.id] || 0) + 1)
+    if (aviso) {
+      setBloqueado({ c, aviso })
+      return
+    }
     setCarrinho((k) => ({ ...k, [c.id]: (k[c.id] || 0) + 1 }))
   }
   // o mesmo card serve dentro da pasta e no resultado da busca
@@ -2907,6 +2915,15 @@ function VendaBalcao({ cervejas, estoque = new Map(), onVender, onVoltar }) {
     )
   }
   function mudar(id, delta) {
+    // o "+" do carrinho é a mesma porta do toque no card: barra igual
+    if (delta > 0) {
+      const c = cervejas.find((x) => x.id === id)
+      const aviso = avisoEstoque(estoque.get(id), (carrinho[id] || 0) + delta)
+      if (aviso) {
+        if (c) setBloqueado({ c, aviso })
+        return
+      }
+    }
     setCarrinho((k) => {
       const novo = Math.max(0, (k[id] || 0) + delta)
       const cp = { ...k }
@@ -3023,43 +3040,87 @@ function VendaBalcao({ cervejas, estoque = new Map(), onVender, onVoltar }) {
                 </div>
               ))}
             </div>
-            {/* mesmo aviso da comanda: escolher a forma de pagamento aqui JÁ é
-                a confirmação da venda, então ele tem que ver antes disso */}
-            {faltando.length > 0 && (
-              <div className="venda-alerta">
-                <span className="va-tit">⚠️ Sem estoque desses aqui</span>
-                {faltando.map(({ it, aviso }) => (
-                  <div key={it.cerveja.id} className="va-linha">
-                    <span>{reprProduto(it.cerveja)}</span>
-                    <b>
-                      {aviso.acabou
-                        ? 'acabou'
-                        : `só tem ${aviso.disponivel} de ${aviso.pedido}`}
-                    </b>
-                  </div>
-                ))}
-                <span className="va-txt">
-                  Se vender assim, o dinheiro entra no caixa mas não tem de onde sair
-                  do estoque — os dois deixam de bater.
-                </span>
-              </div>
-            )}
-
-            <span className="pag-como">Como pagou?</span>
-            <div className="pag-formas">
-              {FORMAS_PAGAMENTO.map((f) => (
-                <button
-                  key={f.id}
-                  className="pag-forma"
-                  onClick={() => onVender(itensCarrinho, f.id)}
-                >
-                  <span className="pag-forma-ic">{f.icone}</span>
-                  {f.label}
+            {/* Última porta. O carrinho já é barrado no toque, mas o saldo pode
+                ter mudado no meio do caminho — outro celular vendeu a última
+                enquanto esta tela estava aberta. Aqui a venda não sai. */}
+            {faltando.length > 0 ? (
+              <>
+                <div className="venda-alerta">
+                  <span className="va-tit">⚠️ Esse produto acabou no estoque</span>
+                  {faltando.map(({ it, aviso }) => (
+                    <div key={it.cerveja.id} className="va-linha">
+                      <span>{reprProduto(it.cerveja)}</span>
+                      <b>
+                        {aviso.acabou
+                          ? 'acabou'
+                          : `só tem ${aviso.disponivel} de ${aviso.pedido}`}
+                      </b>
+                    </div>
+                  ))}
+                  <span className="va-txt">
+                    Tire do carrinho pra vender o resto — ou dá a entrada deles na aba
+                    Estoque, se a mercadoria chegou.
+                  </span>
+                </div>
+                <button className="pag-cancelar" onClick={() => setConfVenda(false)}>
+                  ‹ Voltar e ajustar o carrinho
                 </button>
-              ))}
-            </div>
+              </>
+            ) : (
+              <>
+                <span className="pag-como">Como pagou?</span>
+                <div className="pag-formas">
+                  {FORMAS_PAGAMENTO.map((f) => (
+                    <button
+                      key={f.id}
+                      className="pag-forma"
+                      onClick={() => onVender(itensCarrinho, f.id)}
+                    >
+                      <span className="pag-forma-ic">{f.icone}</span>
+                      {f.label}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
             <button className="pag-cancelar" onClick={() => setConfVenda(false)}>
               Cancelar
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Barreira do estoque no toque do card. Sem saída de "vender assim
+          mesmo": o caminho pra vender é dar entrada da mercadoria. */}
+      {bloqueado && (
+        <div className="excesso-overlay" onClick={() => setBloqueado(null)}>
+          <div className="excesso-box" onClick={(e) => e.stopPropagation()}>
+            <span className="excesso-ic">⚠️</span>
+            <p className="excesso-tit">Esse produto acabou no estoque</p>
+            <p className="excesso-txt">
+              {bloqueado.aviso.acabou ? (
+                <>
+                  Não tem mais <b>{reprProduto(bloqueado.c)}</b> no estoque
+                  {bloqueado.aviso.disponivel < 0
+                    ? ` (saldo ${bloqueado.aviso.disponivel}).`
+                    : '.'}
+                </>
+              ) : (
+                <>
+                  Só tem <b>{bloqueado.aviso.disponivel}</b> de{' '}
+                  <b>{reprProduto(bloqueado.c)}</b> no estoque.
+                </>
+              )}
+              <br />
+              Não dá pra vender o que não tem: entraria dinheiro no caixa sem ter de
+              onde sair da geladeira.
+            </p>
+            <p className="confirm-saida">
+              <b>Chegou mercadoria?</b> Dá a entrada dele na aba <b>Estoque</b> e ele
+              volta a vender na hora.
+            </p>
+            <button className="excesso-voltar" onClick={() => setBloqueado(null)}>
+              Entendi
             </button>
           </div>
         </div>
