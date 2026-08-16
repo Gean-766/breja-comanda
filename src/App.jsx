@@ -580,6 +580,18 @@ export default function App({ distribuidora = null, onSair = null }) {
     c.nome.toLowerCase().includes(busca.trim().toLowerCase())
   )
 
+  // Saldo do estoque por produto. É o que deixa o app avisar, NA HORA DE
+  // LANÇAR, que aquele produto acabou — ver `avisoEstoque`. Só existe com o
+  // módulo Estoque ligado, porque é ele que carrega as entradas; sem contagem
+  // não há saldo pra comparar e o app não tem o que reclamar.
+  const estoquePorId = useMemo(() => {
+    const m = new Map()
+    if (!temEstoque) return m
+    for (const it of calcularEstoque(cervejas, entradas, consumos, perdas))
+      m.set(it.c.id, { controlado: it.controlado, saldo: it.saldo })
+    return m
+  }, [temEstoque, cervejas, entradas, consumos, perdas])
+
   async function adicionarPessoa() {
     let nome = novoNome.trim()
     if (!nome) return
@@ -650,10 +662,27 @@ export default function App({ distribuidora = null, onSair = null }) {
     })
   }
 
-  async function fecharConta(cliente_id, forma = null) {
+  // `noiteRetro` ('AAAA-MM-DD') é a CORREÇÃO DE ESQUECIMENTO: o freguês pagou
+  // naquela noite, mas a comanda ficou aberta no app. Sem ela, o dinheiro cairia
+  // no caixa de hoje e as duas noites ficariam erradas — a de ontem com sobra na
+  // gaveta que ninguém explica, a de hoje com uma entrada que nunca aconteceu.
+  //
+  // O pagamento é carimbado no fim daquela noite — o instante em que o caixa
+  // dela fechou (ou a virada, se ficou esquecido aberto): é exatamente onde ele
+  // teria sido contado se a comanda tivesse sido fechada na hora.
+  //
+  // O SEGUNDO A MENOS não é frescura. As janelas das noites são coladas de
+  // propósito (o fim de uma é o começo da outra, pra nenhuma venda cair numa
+  // brecha) e as duas pontas contam. Uma venda de verdade nunca acontece no
+  // instante exato da virada, mas este carimbo cairia bem ali — e os mesmos
+  // R$ 58 entrariam NAS DUAS noites. Um segundo antes é o que o mantém dentro
+  // de uma só.
+  async function fecharConta(cliente_id, forma = null, noiteRetro = null) {
     const cli = clientes.find((c) => c.id === cliente_id)
     const r = resumo[cliente_id] || { total: 0, qtd: 0 }
-    const pago_em = new Date().toISOString()
+    const pago_em = new Date(
+      noiteRetro ? fimDoDia(noiteRetro, caixas, virada) - 1000 : Date.now()
+    ).toISOString()
     // tenta gravar a forma; se a coluna ainda não existe no banco, fecha sem ela
     // (assim o fechar nunca quebra antes de rodar o SQL do financeiro)
     let upd = await supabase
@@ -681,7 +710,10 @@ export default function App({ distribuidora = null, onSair = null }) {
     if (cli)
       registrar(
         'fechar_cliente',
-        `Fechou/pagou a comanda de ${cli.nome} (${money(r.total)}${forma ? ' · ' + rotuloForma(forma) : ''})`,
+        `Fechou/pagou a comanda de ${cli.nome} (${money(r.total)}${forma ? ' · ' + rotuloForma(forma) : ''})` +
+          // deixa rastro da correção: quem olhar o histórico depois precisa ver
+          // que esse dinheiro foi lançado numa noite que já tinha sido fechada
+          (noiteRetro ? ` — lançado na noite de ${diaBonito(noiteRetro)}` : ''),
         { cliente: cli }
       )
   }
@@ -947,6 +979,11 @@ export default function App({ distribuidora = null, onSair = null }) {
   if (carregando) return <div className="centro">Carregando…</div>
 
   const clienteAberto = clientes.find((c) => c.id === abertoId)
+  // Comanda que atravessou a noite: é a única em que faz sentido oferecer o
+  // lançamento retroativo (ver `fecharConta`). Comanda de hoje não tem noite
+  // passada pra corrigir, então lá o botão nem aparece.
+  const noiteDoAberto = clienteAberto ? diaDoBar(clienteAberto.created_at, virada) : null
+  const noiteAntiga = noiteDoAberto && noiteDoAberto !== diaAtual ? noiteDoAberto : null
 
   return (
     <div className="app">
@@ -1062,9 +1099,21 @@ export default function App({ distribuidora = null, onSair = null }) {
           <div className="lista">
             {clientesFiltrados.map((c) => {
               const r = resumo[c.id] || { total: 0, qtd: 0 }
+              // Comanda que atravessou a noite (o freguês que não pagou ontem).
+              // Sem isto ela fica no meio das de hoje sem nada a diferenciando —
+              // foi assim que a comanda do Ricardo virou surpresa no fechamento.
+              const noite = diaDoBar(c.created_at, virada)
+              const deOutraNoite = noite !== diaAtual
               return (
-                <button key={c.id} className="card" onClick={() => setAbertoId(c.id)}>
+                <button
+                  key={c.id}
+                  className={'card' + (deOutraNoite ? ' card-antiga' : '')}
+                  onClick={() => setAbertoId(c.id)}
+                >
                   <span className="card-nome">{c.nome}</span>
+                  {deOutraNoite && (
+                    <span className="card-noite">🌙 da noite de {diaBonito(noite)}</span>
+                  )}
                   <span className="card-info">
                     <span className="qtd">{r.qtd} 🍺</span>
                     <span className="total">{money(r.total)}</span>
@@ -1140,6 +1189,8 @@ export default function App({ distribuidora = null, onSair = null }) {
           consumos={consumos.filter((co) => co.cliente_id === clienteAberto.id)}
           resumo={resumo[clienteAberto.id] || { total: 0, qtd: 0 }}
           parciais={parciais.filter((p) => p.cliente_id === clienteAberto.id)}
+          estoque={estoquePorId}
+          noiteAntiga={noiteAntiga}
           onAdd={adicionarConsumo}
           onRemove={removerConsumo}
           onPagarParte={pagarParte}
@@ -1153,6 +1204,7 @@ export default function App({ distribuidora = null, onSair = null }) {
       {balcaoAberto && (
         <VendaBalcao
           cervejas={cervejas}
+          estoque={estoquePorId}
           onVender={venderBalcao}
           onVoltar={() => setBalcaoAberto(false)}
         />
@@ -1397,9 +1449,23 @@ function FolhaAbrirCaixa({ dia, sugestao, comVenda, onAbrir, onAgoraNao }) {
 function FolhaFecharCaixa({ caixa, resumo, atrasado, virada = HORA_VIRADA, onFechar, onCancelar }) {
   const [contado, setContado] = useState('')
   const [indo, setIndo] = useState(false)
+  // trava de comanda aberta: quando ainda tem gente devendo, o fechamento passa
+  // por uma parada obrigatória antes de acontecer (ver o alerta lá embaixo)
+  const [alertaAberto, setAlertaAberto] = useState(false)
   const esperado = resumo.fundo + resumo.dinheiro
   const temContagem = String(contado).trim() !== ''
   const diferenca = temContagem ? (Number(String(contado).replace(',', '.')) || 0) - esperado : 0
+  const devendo = resumo.devendo || []
+
+  // Comanda VAZIA (a que ele deixa pronta pro freguês de todo dia) não conta:
+  // ela não é dívida, e travar o fechamento por causa dela seria um alarme que
+  // toca toda noite — em uma semana ninguém mais lê.
+  const temDevendo = resumo.emAberto > 0.009
+
+  function confirmar() {
+    setIndo(true)
+    onFechar(temContagem ? Number(String(contado).replace(',', '.')) || 0 : null)
+  }
   return (
     <div className="pag-overlay" onClick={onCancelar}>
       <div className="pag-box cx-fechar-box" onClick={(e) => e.stopPropagation()}>
@@ -1476,7 +1542,7 @@ function FolhaFecharCaixa({ caixa, resumo, atrasado, virada = HORA_VIRADA, onFec
           )}
         </div>
 
-        {resumo.emAberto > 0.009 && (
+        {temDevendo && (
           <p className="cx-folha-txt">
             As comandas que ficarem abertas continuam abertas — quando forem pagas,
             o dinheiro entra no caixa do dia em que você receber.
@@ -1487,8 +1553,13 @@ function FolhaFecharCaixa({ caixa, resumo, atrasado, virada = HORA_VIRADA, onFec
           className="pag-confirmar"
           disabled={indo}
           onClick={() => {
-            setIndo(true)
-            onFechar(temContagem ? Number(String(contado).replace(',', '.')) || 0 : null)
+            // ainda tem gente devendo? o fechamento para aqui e pede uma
+            // decisão consciente antes de seguir
+            if (temDevendo) {
+              setAlertaAberto(true)
+              return
+            }
+            confirmar()
           }}
         >
           {indo ? 'Fechando…' : '🔒 Confirmar fechamento'}
@@ -1497,6 +1568,49 @@ function FolhaFecharCaixa({ caixa, resumo, atrasado, virada = HORA_VIRADA, onFec
           Ainda não
         </button>
       </div>
+
+      {/* TRAVA: fechar o caixa com comanda em aberto.
+          Não é bloqueio total de propósito — fiado existe, e o freguês que
+          "paga amanhã" não pode impedir o bar de fechar a noite. O que ela
+          precisa é VER quem ficou devendo antes de decidir, em vez de
+          descobrir depois que o caixa já foi. */}
+      {alertaAberto && (
+        <div className="excesso-overlay" onClick={() => setAlertaAberto(false)}>
+          <div className="excesso-box" onClick={(e) => e.stopPropagation()}>
+            <span className="excesso-ic">⚠️</span>
+            <p className="excesso-tit">
+              {devendo.length === 1
+                ? 'Ainda tem 1 comanda aberta!'
+                : `Ainda têm ${devendo.length} comandas abertas!`}
+            </p>
+            <p className="excesso-txt">
+              Falta receber <b>{money(resumo.emAberto)}</b>. Se fechar o caixa agora,
+              esse dinheiro <b>não entra na noite de {diaBonito(caixa.dia)}</b> — ele vai
+              entrar no dia em que você receber.
+            </p>
+            <div className="cx-devendo">
+              {devendo.map((c) => (
+                <div key={c.id} className="cf-linha">
+                  <span>{c.nome}</span>
+                  <b>{money(c.total)}</b>
+                </div>
+              ))}
+            </div>
+            <button
+              className="excesso-ok"
+              onClick={() => {
+                setAlertaAberto(false)
+                confirmar()
+              }}
+            >
+              Fechar assim mesmo
+            </button>
+            <button className="excesso-voltar" onClick={() => setAlertaAberto(false)}>
+              ‹ Voltar e receber agora
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -1792,7 +1906,7 @@ function calcularGarrafas(consumos, parciais) {
     }
 }
 
-function Detalhe({ cliente, loja = 'Comanda', cervejas, consumos, resumo, parciais = [], onAdd, onRemove, onPagarParte, onFechar, onExcluir, onRenomear, onVoltar }) {
+function Detalhe({ cliente, loja = 'Comanda', cervejas, consumos, resumo, parciais = [], estoque = new Map(), noiteAntiga = null, onAdd, onRemove, onPagarParte, onFechar, onExcluir, onRenomear, onVoltar }) {
   const [qtd, setQtd] = useState(1)
   const [editNome, setEditNome] = useState(false) // editando o nome da comanda
   const [nomeEdit, setNomeEdit] = useState('')
@@ -1809,6 +1923,7 @@ function Detalhe({ cliente, loja = 'Comanda', cervejas, consumos, resumo, parcia
   const [selGarrafas, setSelGarrafas] = useState({}) // {beer_nome: qtd escolhida}
   const [valorParte, setValorParte] = useState('')
   const [formaParte, setFormaParte] = useState('dinheiro') // como ESSE amigo pagou
+  const [retro, setRetro] = useState(false) // pagamento entrou na noite passada, não agora
   const [pessoas, setPessoas] = useState(0) // dividir a conta entre N pessoas (modo valor)
   const [dividirN, setDividirN] = useState(1) // calculadora "dividir" na tela da mesa
   const [impressoEm, setImpressoEm] = useState(null) // hora carimbada no cupom
@@ -1971,6 +2086,7 @@ function Detalhe({ cliente, loja = 'Comanda', cervejas, consumos, resumo, parcia
   // o mesmo card serve dentro da pasta e no resultado da busca
   const cardProduto = (c) => {
     const cor = corDe(c.nome, c.cor)
+    const zerado = semEstoque(estoque.get(c.id))
     return (
       <button
         key={c.id}
@@ -1989,6 +2105,8 @@ function Detalhe({ cliente, loja = 'Comanda', cervejas, consumos, resumo, parcia
         )}
         <span className="pc-nome">{c.nome}</span>
         <span className="pc-info">
+          {/* o selo aparece antes do toque: melhor não errar do que desfazer */}
+          {zerado && <span className="pc-zerado">⚠️ acabou</span>}
           {c.tamanho && <span className="pc-tam">{c.tamanho}</span>}
           <span className="pc-preco">{money(c.preco)}</span>
         </span>
@@ -2244,13 +2362,43 @@ function Detalhe({ cliente, loja = 'Comanda', cervejas, consumos, resumo, parcia
               </button>
             ) : (
               <>
+                {/* Comanda que ficou de outra noite: o dinheiro pode ter entrado
+                    LÁ e a comanda só ter ficado aberta por esquecimento. Sem esta
+                    escolha, fechar hoje jogaria a entrada no caixa de hoje e as
+                    duas noites ficariam erradas. */}
+                {noiteAntiga && (
+                  <div className="pag-quando">
+                    <span className="pag-quando-lbl">Quando esse dinheiro entrou?</span>
+                    <div className="forma-chips">
+                      <button
+                        className={'forma-chip' + (!retro ? ' on' : '')}
+                        onClick={() => setRetro(false)}
+                      >
+                        Agora
+                      </button>
+                      <button
+                        className={'forma-chip' + (retro ? ' on' : '')}
+                        onClick={() => setRetro(true)}
+                      >
+                        🌙 Na noite de {diaBonito(noiteAntiga)}
+                      </button>
+                    </div>
+                    {retro && (
+                      <span className="pag-quando-aviso">
+                        ⚠️ Vai entrar no caixa da noite de {diaBonito(noiteAntiga)}, que
+                        já foi conferida. Use só se ele pagou mesmo naquele dia e a
+                        comanda ficou aberta por esquecimento.
+                      </span>
+                    )}
+                  </div>
+                )}
                 <span className="pag-como">Como pagou?</span>
                 <div className="pag-formas">
                   {FORMAS_PAGAMENTO.map((f) => (
                     <button
                       key={f.id}
                       className="pag-forma"
-                      onClick={() => onFechar(cliente.id, f.id)}
+                      onClick={() => onFechar(cliente.id, f.id, retro ? noiteAntiga : null)}
                     >
                       <span className="pag-forma-ic">{f.icone}</span>
                       {f.label}
@@ -2259,7 +2407,13 @@ function Detalhe({ cliente, loja = 'Comanda', cervejas, consumos, resumo, parcia
                 </div>
               </>
             )}
-            <button className="pag-cancelar" onClick={() => setConfPagto(false)}>
+            <button
+              className="pag-cancelar"
+              onClick={() => {
+                setConfPagto(false)
+                setRetro(false)
+              }}
+            >
               Cancelar
             </button>
           </div>
@@ -2538,9 +2692,19 @@ function Detalhe({ cliente, loja = 'Comanda', cervejas, consumos, resumo, parcia
 
       {confirmar && (() => {
         const cor = corDe(confirmar.nome, confirmar.cor)
+        // acabou no estoque? o aviso entra AQUI, no mesmo toque de sempre —
+        // ele não some, mas passa a exigir uma escolha consciente
+        const aviso = avisoEstoque(estoque.get(confirmar.id), qtd)
+        const lancar = () => {
+          tocar(confirmar)
+          setConfirmar(null)
+        }
         return (
           <div className="confirm-overlay" onClick={() => setConfirmar(null)}>
-            <div className="confirm-box" onClick={(e) => e.stopPropagation()}>
+            <div
+              className={'confirm-box' + (aviso ? ' confirm-alerta' : '')}
+              onClick={(e) => e.stopPropagation()}
+            >
               <button
                 className="confirm-x"
                 onClick={() => setConfirmar(null)}
@@ -2548,22 +2712,47 @@ function Detalhe({ cliente, loja = 'Comanda', cervejas, consumos, resumo, parcia
               >
                 ✕
               </button>
-              <p className="confirm-msg">Clica em OK para confirmar</p>
+              <p className="confirm-msg">
+                {aviso ? '⚠️ Esse produto acabou no estoque' : 'Clica em OK para confirmar'}
+              </p>
               <span
                 className="confirm-prod"
                 style={{ background: cor.bg, color: cor.fg }}
               >
                 {qtd}× {reprDe(confirmar)}
               </span>
-              <button
-                className="confirm-ok"
-                onClick={() => {
-                  tocar(confirmar)
-                  setConfirmar(null)
-                }}
-              >
-                OK
-              </button>
+              {aviso ? (
+                <>
+                  <p className="confirm-aviso">
+                    {aviso.acabou ? (
+                      <>
+                        Pelo sistema não tem mais <b>{reprDe(confirmar)}</b>
+                        {aviso.disponivel < 0
+                          ? ` — o saldo já está em ${aviso.disponivel}.`
+                          : ' — o saldo está zerado.'}
+                      </>
+                    ) : (
+                      <>
+                        Só tem <b>{aviso.disponivel}</b> no estoque e você está lançando{' '}
+                        <b>{aviso.pedido}</b>.
+                      </>
+                    )}
+                    <br />
+                    Se continuar, a venda entra no caixa mas não tem de onde sair do
+                    estoque: <b>os dois deixam de bater</b>.
+                  </p>
+                  <button className="confirm-forcar" onClick={lancar}>
+                    Continuar e lançar
+                  </button>
+                  <button className="confirm-fechar" onClick={() => setConfirmar(null)}>
+                    ✕ Fechar sem lançar
+                  </button>
+                </>
+              ) : (
+                <button className="confirm-ok" onClick={lancar}>
+                  OK
+                </button>
+              )}
             </div>
           </div>
         )
@@ -2675,7 +2864,7 @@ function CupomComanda({ loja, cliente, itens, resumo, parciais = [], pago = 0, f
 
 // VENDA RÁPIDA (balcão): monta um carrinho, toca nos produtos e vende de uma vez.
 // Não abre comanda com nome — quem chama (App.venderBalcao) grava como venda fechada.
-function VendaBalcao({ cervejas, onVender, onVoltar }) {
+function VendaBalcao({ cervejas, estoque = new Map(), onVender, onVoltar }) {
   const [carrinho, setCarrinho] = useState({}) // {cervejaId: qtd}
   const [busca, setBusca] = useState('')
   const [confVenda, setConfVenda] = useState(false) // confirmação antes de fechar a venda
@@ -2688,6 +2877,7 @@ function VendaBalcao({ cervejas, onVender, onVoltar }) {
   const cardProduto = (c) => {
     const cor = corDe(c.nome, c.cor)
     const n = carrinho[c.id] || 0
+    const zerado = semEstoque(estoque.get(c.id))
     return (
       <button
         key={c.id}
@@ -2709,6 +2899,7 @@ function VendaBalcao({ cervejas, onVender, onVoltar }) {
           {n > 0 && <span className="pc-badge">{n}</span>}
         </span>
         <span className="pc-info">
+          {zerado && <span className="pc-zerado">⚠️ acabou</span>}
           {c.tamanho && <span className="pc-tam">{c.tamanho}</span>}
           <span className="pc-preco">{money(c.preco)}</span>
         </span>
@@ -2730,6 +2921,13 @@ function VendaBalcao({ cervejas, onVender, onVoltar }) {
     .map((c) => ({ cerveja: c, qtd: carrinho[c.id] }))
   const total = itensCarrinho.reduce((s, it) => s + Number(it.cerveja.preco) * it.qtd, 0)
   const totalItens = itensCarrinho.reduce((s, it) => s + it.qtd, 0)
+
+  // No balcão nada é gravado até tocar em Vender, então o carrinho INTEIRO é o
+  // que vai sair — por isso a conferência é do total de cada produto, não de
+  // uma unidade por vez.
+  const faltando = itensCarrinho
+    .map((it) => ({ it, aviso: avisoEstoque(estoque.get(it.cerveja.id), it.qtd) }))
+    .filter((x) => x.aviso)
 
   return (
     <div className="overlay">
@@ -2825,6 +3023,28 @@ function VendaBalcao({ cervejas, onVender, onVoltar }) {
                 </div>
               ))}
             </div>
+            {/* mesmo aviso da comanda: escolher a forma de pagamento aqui JÁ é
+                a confirmação da venda, então ele tem que ver antes disso */}
+            {faltando.length > 0 && (
+              <div className="venda-alerta">
+                <span className="va-tit">⚠️ Sem estoque desses aqui</span>
+                {faltando.map(({ it, aviso }) => (
+                  <div key={it.cerveja.id} className="va-linha">
+                    <span>{reprProduto(it.cerveja)}</span>
+                    <b>
+                      {aviso.acabou
+                        ? 'acabou'
+                        : `só tem ${aviso.disponivel} de ${aviso.pedido}`}
+                    </b>
+                  </div>
+                ))}
+                <span className="va-txt">
+                  Se vender assim, o dinheiro entra no caixa mas não tem de onde sair
+                  do estoque — os dois deixam de bater.
+                </span>
+              </div>
+            )}
+
             <span className="pag-como">Como pagou?</span>
             <div className="pag-formas">
               {FORMAS_PAGAMENTO.map((f) => (
@@ -3740,6 +3960,28 @@ function calcularEstoque(cervejas, entradas, consumos, perdas) {
   const rank = { zero: 0, baixo: 1, ok: 2, novo: 3 }
   return arr.sort((a, b) => rank[a.nivel] - rank[b.nivel] || a.c.nome.localeCompare(b.c.nome))
 }
+
+// O AVISO DE ESTOQUE na hora de lançar. É aqui que estoque e caixa se
+// encontram: vender o que não tem faz o dinheiro entrar na gaveta sem ter de
+// onde sair da geladeira — a partir daí os dois números nunca mais batem, e
+// ninguém vê o erro acontecer. Melhor gritar antes do toque do que descobrir
+// no fechamento.
+//
+// Quem NUNCA foi contado (`controlado` falso) não tem saldo pra reclamar: fica
+// quieto, senão a loja que ainda não contou o estoque levaria um alerta a cada
+// cerveja lançada.
+//
+// `qtd` é quanto vai sair AGORA. Na comanda é o que está no stepper (o toque
+// anterior já virou venda e já baixou o saldo); na venda rápida é o total
+// daquele produto no carrinho, que ainda não foi gravado.
+function avisoEstoque(est, qtd = 1) {
+  if (!est || !est.controlado) return null
+  if (est.saldo >= qtd) return null
+  return { disponivel: est.saldo, pedido: qtd, acabou: est.saldo <= 0 }
+}
+
+// só o "acabou" (pro selo no card do produto, antes mesmo do toque)
+const semEstoque = (est) => !!est && est.controlado && est.saldo <= 0
 
 
 function AbaEstoque({ cervejas, setCervejas, entradas, setEntradas, consumos, perdas = [], setPerdas, onErro, onLog }) {
@@ -5393,16 +5635,22 @@ function calcularCaixa({ pagas, abertas, parciais, totalPorCliente, parcialPorCl
 
   // Comanda deixada pronta pro freguês de todo dia (Alemão, Pedro) fica aberta
   // e zerada. Ela NÃO é "sem pagar" — senão o dono lê 5 devendo quando são 2.
+  //
+  // `devendo` sai daqui com NOME e valor: é a mesma lista que o Relatório mostra
+  // em "Em aberto agora" e que a folha de fechamento usa pra avisar, na hora de
+  // fechar o caixa, quem ainda não pagou. Uma conta só, nos dois lugares.
   let emAberto = 0
-  let nAberto = 0
   let nEsperando = 0
+  const devendo = []
   for (const a of abertas) {
     const total = totalPorCliente.get(a.id) || 0
     const falta = Math.max(0, total - (parcialPorCliente.get(a.id) || 0))
     emAberto += falta
     if (total <= 0.009) nEsperando++
-    else if (falta > 0.009) nAberto++
+    else if (falta > 0.009) devendo.push({ id: a.id, nome: a.nome, total: falta })
   }
+  devendo.sort((a, b) => b.total - a.total)
+  const nAberto = devendo.length
 
   // na ordem dos botões da tela; forma desconhecida (ou nenhuma) cai no fim
   const ordem = FORMAS_PAGAMENTO.map((f) => f.id)
@@ -5414,7 +5662,15 @@ function calcularCaixa({ pagas, abertas, parciais, totalPorCliente, parcialPorCl
       if (ia !== -1 || ib !== -1) return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib)
       return b.valor - a.valor
     })
-  return { recebido, emAberto, nAberto, nEsperando, formas, dinheiro: porForma.get('dinheiro') || 0 }
+  return {
+    recebido,
+    emAberto,
+    nAberto,
+    nEsperando,
+    devendo,
+    formas,
+    dinheiro: porForma.get('dinheiro') || 0,
+  }
 }
 
 function Relatorio({
@@ -5496,19 +5752,9 @@ function Relatorio({
   ])
 
   // Quem está devendo agora, com nome — o "3 comandas sem pagar" vira lista.
-  // É o que FALTA: o que o amigo já pagou em parte não pode aparecer como dívida.
-  const devendo = useMemo(
-    () =>
-      abertas
-        .map((c) => ({
-          id: c.id,
-          nome: c.nome,
-          total: Math.max(0, (totalPorCliente.get(c.id) || 0) - (parcialPorCliente.get(c.id) || 0)),
-        }))
-        .filter((c) => c.total > 0.009)
-        .sort((a, b) => b.total - a.total),
-    [abertas, totalPorCliente, parcialPorCliente]
-  )
+  // Vem do próprio cálculo do caixa (ver `calcularCaixa`), a mesma lista que a
+  // folha de fechamento usa pra avisar antes de fechar o dia.
+  const devendo = caixa.devendo
 
   // custo unitário por nome-de-produto (só dos que têm custo cadastrado no Estoque)
   const custoPorNome = useMemo(() => {

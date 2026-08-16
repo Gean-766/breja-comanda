@@ -329,6 +329,25 @@ button:active {
   overflow: hidden;
   word-break: break-word;
 }
+/* comanda que atravessou a noite: o freguês que não pagou ontem.
+   A tarja âmbar existe pra ela não se perder no meio das comandas de hoje. */
+.card-antiga {
+  border: 1px solid rgba(212, 162, 60, 0.55);
+}
+.card-noite {
+  align-self: stretch;
+  margin-top: -4px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: rgba(212, 162, 60, 0.16);
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 800;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .card-info {
   display: flex;
   flex-direction: column;
@@ -1556,6 +1575,45 @@ input[type='number'] {
   color: #06210f;
   font-size: 20px;
   font-weight: 900;
+}
+
+/* ----- Aviso: lançando produto que acabou no estoque -----
+   A caixa inteira muda de cara (borda vermelha, título vermelho) pra que o
+   toque automático de sempre — "OK" no mesmo lugar — não passe batido. O botão
+   verde some: no lugar dele entram duas escolhas, e nenhuma delas é o reflexo. */
+.confirm-box.confirm-alerta {
+  border: 2px solid var(--danger);
+}
+.confirm-alerta .confirm-msg {
+  color: var(--danger);
+  font-size: 19px;
+  font-weight: 900;
+}
+.confirm-aviso {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.45;
+  color: var(--text);
+}
+.confirm-forcar {
+  width: 100%;
+  padding: 15px;
+  border: none;
+  border-radius: 14px;
+  background: var(--danger);
+  color: #fff;
+  font-size: 16px;
+  font-weight: 900;
+}
+.confirm-fechar {
+  width: 100%;
+  padding: 13px;
+  border: none;
+  border-radius: 12px;
+  background: var(--card2);
+  color: var(--text);
+  font-size: 15px;
+  font-weight: 800;
 }
 
 /* ===== Módulo Cozinha ===== */
@@ -2903,6 +2961,30 @@ input[type='number'] {
   font-weight: 900;
   margin-bottom: 4px;
 }
+/* "Quando esse dinheiro entrou?" — só aparece na comanda que ficou de outra
+   noite. É a correção do esquecimento: a comanda ficou aberta no app mas o
+   dinheiro já tinha entrado na gaveta daquela noite. */
+.pag-quando {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border-radius: 12px;
+  background: var(--bg);
+}
+.pag-quando-lbl {
+  text-align: center;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--muted);
+}
+.pag-quando-aviso {
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--accent);
+  text-align: left;
+}
+
 /* 4 formas em 2×2: numa linha só elas ficariam finas demais pro dedo */
 .pag-como {
   text-align: center;
@@ -3052,6 +3134,57 @@ input[type='number'] {
 .venda-item b {
   font-weight: 800;
 }
+/* selo "acabou" no card do produto (comanda e venda rápida).
+   Fundo escuro translúcido de propósito: o card já é da cor da marca, e um
+   selo vermelho sumiria em cima da Brahma. Assim ele aparece em qualquer cor. */
+.pc-zerado {
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.45);
+  border: 1px solid rgba(255, 255, 255, 0.55);
+  font-size: 12px;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  white-space: nowrap;
+}
+
+/* aviso de estoque na confirmação da venda rápida (o carrinho inteiro) */
+.venda-alerta {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 14px;
+  border: 2px solid var(--danger);
+  border-radius: 14px;
+  background: rgba(224, 83, 61, 0.1);
+  text-align: left;
+}
+.va-tit {
+  font-size: 15px;
+  font-weight: 900;
+  color: var(--danger);
+}
+.va-linha {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 15px;
+  font-weight: 700;
+}
+.va-linha b {
+  flex-shrink: 0;
+  font-weight: 900;
+  color: var(--danger);
+}
+.va-txt {
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--muted);
+}
+
 /* contador em cima do card de produto (quantas já foram pro carrinho) */
 .pc-badge {
   display: inline-flex;
@@ -4284,6 +4417,19 @@ input[type='number'] {
   border-top: 1px solid var(--card2);
   padding-top: 8px;
   color: #efb27f;
+}
+/* quem ficou devendo, dentro do alerta de fechar o caixa */
+.cx-devendo {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 180px;
+  overflow-y: auto;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--bg);
+  text-align: left;
 }
 .cx-gaveta {
   display: flex;
