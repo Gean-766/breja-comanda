@@ -168,6 +168,38 @@ function ultimoCaixaDe(caixas = [], dia) {
   return alvo
 }
 
+// O PRIMEIRO turno da noite — o que começou a gaveta.
+function primeiroCaixaDe(caixas = [], dia) {
+  let alvo = null
+  for (const c of caixas) {
+    if (String(c.dia) !== dia) continue
+    if (!alvo || new Date(c.aberto_em) < new Date(alvo.aberto_em)) alvo = c
+  }
+  return alvo
+}
+
+// Quantos turnos teve aquela noite (quase sempre 1).
+function nTurnosDaNoite(caixas = [], dia) {
+  let n = 0
+  for (const c of caixas) if (String(c.dia) === dia) n++
+  return n
+}
+
+// O troco que começou a gaveta daquela noite.
+//
+// Tem que ser o do PRIMEIRO turno, e isso não é detalhe. Quando ele fecha o
+// caixa no meio da noite e reabre (o bar deu uma esvaziada às 21:34, encheu de
+// novo às 22:42), o dinheiro do troco NÃO foi reposto — é a mesma gaveta, com
+// as mesmas notas dentro. Na reabertura ele digita 0, porque não pôs nada.
+//
+// Pegando o último turno, o "Tem que ter na gaveta" mostrava R$ 0 de troco numa
+// noite que começou com R$ 150 — e a conferência da gaveta acusaria R$ 150
+// sobrando, um erro de troco que nunca existiu.
+function fundoDaNoite(caixas = [], dia) {
+  const pri = primeiroCaixaDe(caixas, dia)
+  return pri && pri.fundo_troco != null ? Number(pri.fundo_troco) : FUNDO_TROCO
+}
+
 // Quando a noite acabou: no fechamento do caixa — ou, na falta dele, na virada.
 // O `min` é a rede de segurança: mesmo esquecido, o dia nunca passa da virada.
 function fimDoDia(dia, caixas, virada = HORA_VIRADA, agora = Date.now()) {
@@ -186,12 +218,34 @@ function janelaDoDia(dia, caixas, virada = HORA_VIRADA, agora = Date.now()) {
   return { inicio, fim }
 }
 
-// Que noite está rolando AGORA (é o "Hoje" do relatório). Normalmente é o dia
-// do bar do relógio; se o caixa daquela noite já foi fechado, o que vier agora
-// já conta pra próxima.
+// Que noite está rolando AGORA (é o "Hoje" do relatório): o dia do bar do
+// relógio, e ponto. Quem carimba a noite é a hora de ABRIR, e a virada das
+// 05:00 já segura a madrugada na noite de ontem.
+//
+// AQUI MORAVA UM BUG QUE EMPURRAVA O BAR INTEIRO UM DIA PRA FRENTE.
+// A regra antiga era "se o caixa desta noite já foi fechado, o que vier agora
+// conta pra próxima". Parece razoável, mas ela olhava o caixa pelo RÓTULO — e
+// um caixa rotulado 18/08 fechado às 01:13 é a noite do dia 17 terminando de
+// madrugada, não a noite do 18 que já acabou. Resultado:
+//
+//   1) ele fechava o caixa 01:13 e reabria 02:00 (venda esquecida, segunda
+//      rodada): a madrugada ainda era a mesma noite, mas o caixa novo nascia
+//      com o rótulo do dia SEGUINTE;
+//   2) na noite seguinte a conta se repetia em cima do rótulo já errado, e o
+//      desvio virava permanente — cada noite carimbada um dia à frente, pra
+//      sempre, sem ninguém mexer em nada;
+//   3) no fim, o dia 18 aparecia no relatório com o faturamento do dia 17 e a
+//      tela oferecia "abrir o caixa de 19/08" numa manhã de 18/08.
+//
+// O mesmo furo cortava a noite em duas quando ele fechava cedo (23:30) e
+// reabria 23:50: a mesma noite ganhava dois rótulos.
+//
+// `caixas` continua na assinatura porque é assim que o resto do arquivo chama
+// esta função — e porque o turno segue mandando em TUDO que é janela de
+// relatório (ver `fimDoDia`/`janelaDoDia`). Só o carimbo da noite é que não
+// depende mais dele.
 function diaAtualDoBar(caixas, virada = HORA_VIRADA, agora = Date.now()) {
-  const d = diaDoBar(agora, virada)
-  return fimDoDia(d, caixas, virada, agora) < agora ? somaDia(d, 1) : d
+  return diaDoBar(agora, virada)
 }
 
 // `distribuidora` e `onSair` vêm do Portao.jsx (quem já passou pelo login).
@@ -1321,15 +1375,20 @@ export default function App({ distribuidora = null, onSair = null }) {
 //   "O DIA DO BAR". Aqui é só a tela.)
 // ============================================================================
 
-// O troco que ele pôs na gaveta da última vez — a gaveta começa quase sempre
+// O troco que ele pôs na gaveta na última NOITE — a gaveta começa quase sempre
 // com o mesmo valor, então já vem preenchido.
+//
+// É o fundo do PRIMEIRO turno daquela noite (mesmo motivo de `fundoDaNoite`).
+// Pegando o último turno cru, uma reabertura no meio da noite — digitada com 0,
+// porque ali ele não repôs troco nenhum — virava a sugestão da noite seguinte:
+// ele confirmava sem reparar e a gaveta nascia R$ 150 curta na conferência.
 function ultimoFundo(caixas = []) {
-  let alvo = null
+  let ultimaNoite = null
   for (const c of caixas) {
-    if (c.fundo_troco == null) continue
-    if (!alvo || new Date(c.aberto_em) > new Date(alvo.aberto_em)) alvo = c
+    const d = String(c.dia)
+    if (!ultimaNoite || d > ultimaNoite) ultimaNoite = d
   }
-  return alvo ? Number(alvo.fundo_troco) : FUNDO_TROCO
+  return ultimaNoite ? fundoDaNoite(caixas, ultimaNoite) : FUNDO_TROCO
 }
 
 // Os números de UMA noite: o que saiu (faturamento) e o que entrou de verdade
@@ -1377,8 +1436,7 @@ function resumoDoTurno({
     inicio,
     fim,
   })
-  const cx = ultimoCaixaDe(caixas, dia)
-  const fundo = cx && cx.fundo_troco != null ? Number(cx.fundo_troco) : FUNDO_TROCO
+  const fundo = fundoDaNoite(caixas, dia)
   return { inicio, fim, faturamento, itens, nComandas: comandas.size, fundo, ...caixa }
 }
 
@@ -5828,13 +5886,17 @@ function Relatorio({
   const hojeBar = diaAtual || diaAtualDoBar(caixas, virada)
   // noite escolhida no calendário (modo 'dia') — começa na de hoje
   const [dia, setDia] = useState(() => hojeBar)
-  // o turno daquela noite (pra mostrar o horário real de abertura/fechamento)
-  const caixaDoPeriodo = ultimoCaixaDe(caixas, periodo === 'dia' ? dia : hojeBar)
-  // troco que começou aquela gaveta: o que ele digitou ao abrir o caixa
-  const fundoDoDia =
-    caixaDoPeriodo && caixaDoPeriodo.fundo_troco != null
-      ? Number(caixaDoPeriodo.fundo_troco)
-      : FUNDO_TROCO
+  // a noite que está na tela ('hoje' ou a escolhida no calendário)
+  const noiteDoPeriodo = periodo === 'dia' ? dia : hojeBar
+  // Os turnos daquela noite. Quase sempre é um só, mas dá pra fechar e reabrir
+  // no meio da noite — e aí o horário de verdade da noite vai da PRIMEIRA
+  // abertura até o ÚLTIMO fechamento, não de um turno só.
+  const primeiroDoPeriodo = primeiroCaixaDe(caixas, noiteDoPeriodo)
+  const caixaDoPeriodo = ultimoCaixaDe(caixas, noiteDoPeriodo)
+  const nTurnos = nTurnosDaNoite(caixas, noiteDoPeriodo)
+  // troco que começou aquela gaveta (ver `fundoDaNoite`: é o do PRIMEIRO turno,
+  // não o do último — reabrir no meio da noite não repõe troco nenhum)
+  const fundoDoDia = fundoDaNoite(caixas, noiteDoPeriodo)
 
   // total de cada comanda (soma dos consumos dela) — serve pro caixa
   const totalPorCliente = useMemo(() => {
@@ -6027,8 +6089,9 @@ function Relatorio({
           <>
             {' '}
             <span className="rel-janela-cx">
-              (caixa aberto {hora(caixaDoPeriodo.aberto_em)}
-              {caixaDoPeriodo.fechado_em ? `, fechado ${hora(caixaDoPeriodo.fechado_em)}` : ''})
+              (caixa aberto {hora((primeiroDoPeriodo || caixaDoPeriodo).aberto_em)}
+              {caixaDoPeriodo.fechado_em ? `, fechado ${hora(caixaDoPeriodo.fechado_em)}` : ''}
+              {nTurnos > 1 ? ` · ${nTurnos} turnos na mesma noite` : ''})
             </span>
           </>
         )}
