@@ -5743,10 +5743,16 @@ function EstoqueCard({ it, aberto, onAbrir, onCampo, onAbastecer, onRemoverEntra
 // (item lançado numa comanda), então dá pra montar faturamento, itens e ranking
 // sem tocar no banco. Quando o Estoque entrar (com o custo da caixa), aqui ganha
 // o LUCRO de verdade; por ora é faturamento (o que saiu).
+// As abas do Relatório. "7d"/"30d" são curtos de propósito: com a aba Ontem
+// são cinco numa linha só, e "30 dias" por extenso não cabe num celular de
+// 360px sem espremer a letra. A linha logo abaixo do seletor continua
+// escrevendo por extenso ("Últimas 30 noites, até agora"), então não se perde
+// o que a aba quer dizer.
 const PERIODOS = [
   { id: 'hoje', label: 'Hoje' },
-  { id: '7d', label: '7 dias' },
-  { id: '30d', label: '30 dias' },
+  { id: 'ontem', label: 'Ontem' },
+  { id: '7d', label: '7d' },
+  { id: '30d', label: '30d' },
   { id: 'dia', label: '📅 Dia' },
 ]
 
@@ -5757,16 +5763,30 @@ function hojeISO() {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
 }
 
+// Que NOITE cada aba está olhando. É o único lugar que decide isso — assim a
+// janela do relatório e o troco da gaveta nunca discordam sobre qual noite é.
+//
+// 7d/30d não olham uma noite só: devolvem null. Quem depende de UMA noite (o
+// troco da gaveta, o horário do turno) some da tela nesses períodos, que é o
+// certo — o troco é reposto toda noite e apareceria somado 30 vezes.
+function noiteDaAba(periodo, dia, hojeBar) {
+  if (periodo === 'hoje') return hojeBar
+  if (periodo === 'ontem') return somaDia(hojeBar, -1)
+  if (periodo === 'dia') return dia || null
+  return null
+}
+
 // Janela [inicio, fim] em ms — agora medida em NOITES DE BAR, não em dias do
 // relógio (ver "O DIA DO BAR" no começo do arquivo):
 //   "hoje"  = a noite que está rolando (do fechamento da anterior até agora);
+//   "ontem" = a noite de ontem, inteira, madrugada incluída;
 //   "dia"   = uma noite escolhida no calendário, inteira, madrugada incluída;
 //   7d/30d  = as últimas 7/30 noites, começando no início da mais antiga.
 function janelaPeriodo(periodo, dia, caixas = [], virada = HORA_VIRADA, diaAtual = null) {
   const agora = Date.now()
   const atual = diaAtual || diaAtualDoBar(caixas, virada, agora)
-  if (periodo === 'dia' && dia) return janelaDoDia(dia, caixas, virada, agora)
-  if (periodo === 'hoje') return janelaDoDia(atual, caixas, virada, agora)
+  const noite = noiteDaAba(periodo, dia, atual)
+  if (noite) return janelaDoDia(noite, caixas, virada, agora)
   const dias = periodo === '7d' ? 7 : 30
   const { inicio } = janelaDoDia(somaDia(atual, -(dias - 1)), caixas, virada, agora)
   return { inicio, fim: agora }
@@ -5886,8 +5906,12 @@ function Relatorio({
   const hojeBar = diaAtual || diaAtualDoBar(caixas, virada)
   // noite escolhida no calendário (modo 'dia') — começa na de hoje
   const [dia, setDia] = useState(() => hojeBar)
-  // a noite que está na tela ('hoje' ou a escolhida no calendário)
-  const noiteDoPeriodo = periodo === 'dia' ? dia : hojeBar
+  // a noite que está na tela — null em 7d/30d, que olham várias
+  const noiteDoPeriodo = noiteDaAba(periodo, dia, hojeBar)
+  // abas que olham UMA noite: são as que têm gaveta, turno e nome de dia
+  const umaNoite = noiteDoPeriodo != null
+  // ...e destas, as que olham uma noite JÁ FECHADA (Ontem e 📅 Dia)
+  const noitePassada = umaNoite && periodo !== 'hoje'
   // Os turnos daquela noite. Quase sempre é um só, mas dá pra fechar e reabrir
   // no meio da noite — e aí o horário de verdade da noite vai da PRIMEIRA
   // abertura até o ÚLTIMO fechamento, não de um turno só.
@@ -6082,10 +6106,10 @@ function Relatorio({
       <p className="rel-janela">
         {periodo === '7d' || periodo === '30d'
           ? `Últimas ${periodo === '7d' ? 7 : 30} noites, até agora.`
-          : `Noite de ${diaBonito(periodo === 'dia' ? dia : hojeBar)} · ${janelaTexto(
+          : `Noite de ${diaBonito(noiteDoPeriodo)} · ${janelaTexto(
               janelaPeriodo(periodo, dia, caixas, virada, hojeBar)
             )}`}
-        {caixaDoPeriodo && (periodo === 'hoje' || periodo === 'dia') && (
+        {caixaDoPeriodo && umaNoite && (
           <>
             {' '}
             <span className="rel-janela-cx">
@@ -6099,8 +6123,8 @@ function Relatorio({
 
       {dados.vazio && perdasResumo.qtd === 0 ? (
         <p className="vazio">
-          {periodo === 'dia'
-            ? `Nenhuma venda no dia ${diaBonito(dia)}.`
+          {noitePassada
+            ? `Nenhuma venda na noite de ${diaBonito(noiteDoPeriodo)}.`
             : 'Nenhuma venda nesse período ainda.'}
         </p>
       ) : (
@@ -6165,7 +6189,9 @@ function Relatorio({
           <div className="rel-caixa">
             <div className="caixa-card caixa-recebido">
               <span className="kpi-lbl">
-                {periodo === 'dia' ? `Recebido em ${diaBonito(dia)}` : 'Recebido no período'}
+                {noitePassada
+                  ? `Recebido em ${diaBonito(noiteDoPeriodo)}`
+                  : 'Recebido no período'}
               </span>
               <strong className="kpi-val">{money(caixa.recebido)}</strong>
               {caixa.formas.length > 0 && (
@@ -6180,9 +6206,9 @@ function Relatorio({
               )}
             </div>
 
-            {/* Gaveta: só faz sentido num dia (o troco é reposto todo dia; numa
-                janela de 7/30 dias esse fundo apareceria repetido). */}
-            {(periodo === 'hoje' || periodo === 'dia') && (
+            {/* Gaveta: só faz sentido numa noite só (o troco é reposto toda
+                noite; numa janela de 7/30 dias apareceria repetido). */}
+            {umaNoite && (
               <div className="caixa-card caixa-gaveta">
                 <span className="kpi-lbl">💵 Tem que ter na gaveta</span>
                 <strong className="kpi-val">{money(fundoDoDia + caixa.dinheiro)}</strong>
@@ -6221,7 +6247,10 @@ function Relatorio({
                 )}
               </div>
             )}
-            {periodo !== 'dia' && (
+            {/* "agora" é agora mesmo: conta as comandas abertas NESTE momento,
+                não as da janela. Numa noite que já fechou (Ontem, 📅 Dia) ela
+                não diz nada sobre aquela noite — só confundiria. */}
+            {!noitePassada && (
               <div className="caixa-card caixa-aberto">
                 <span className="kpi-lbl">Em aberto agora</span>
                 <strong className="kpi-val">{money(caixa.emAberto)}</strong>

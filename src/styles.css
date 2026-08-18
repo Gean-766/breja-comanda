@@ -2734,16 +2734,32 @@ input[type='number'] {
 }
 
 /* ===== Módulo Relatório ===== */
+/* Cinco abas (Hoje · Ontem · 7d · 30d · 📅 Dia) numa linha só.
+
+   Grade de 5 colunas iguais, não flex: com flex cada aba puxava a largura do
+   próprio texto e elas ficavam tortas.
+
+   A letra acompanha a largura da tela (`clamp`) em vez de um tamanho fixo.
+   Com um tamanho fixo que coubesse no celular mais estreito, a aba ficaria
+   miúda à toa nos telefones grandes; e um que ficasse bom nos grandes
+   estouraria "Ontem" pra fora da aba nos de 320px. Assim ela fica no maior
+   tamanho que cabe, seja qual for o aparelho: 12px num 320px, 15px na largura
+   cheia do app.
+
+   Os rótulos longos viraram "7d"/"30d" (ver PERIODOS no App.jsx) pelo mesmo
+   motivo: "30 dias" por extenso não cabe em cinco abas. A linha logo abaixo
+   do seletor continua escrevendo por extenso. */
 .rel-periodos {
-  display: flex;
-  gap: 8px;
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 6px;
   margin-bottom: 16px;
 }
 .rel-per {
-  flex: 1;
-  padding: 11px;
-  font-size: 15px;
+  padding: 11px 4px;
+  font-size: clamp(12px, 3.4vw, 15px);
   font-weight: 700;
+  white-space: nowrap;
   border: none;
   border-radius: 10px;
   background: var(--card);
