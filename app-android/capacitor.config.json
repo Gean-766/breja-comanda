@@ -6,7 +6,7 @@
     "allowMixedContent": false
   },
   "server": {
-    "url": "https://breja-comanda.vercel.app",
+    "url": "https://breja-comanda-git-maquininha-gean-douglas-projects.vercel.app",
     "androidScheme": "https",
     "cleartext": false
   }
