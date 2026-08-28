@@ -54,39 +54,49 @@ R$ 50,00, vence dia 14, ativo.
 `teste`: abriu normal, tela cheia, carregando o site ao vivo. A casca Capacitor
 está provada.
 
-**🔴 TRAVA ATUAL — Deployment Protection da Vercel.**
+**✅ ETAPA 4 FECHADA — provado com teste, não com promessa.**
 
-O endereço da branch existe e é:
+Endereço do ambiente de teste (não precisa perguntar de novo; scope
+`gean-douglas-projects`, descoberto pela API de deployments do GitHub):
 
     https://breja-comanda-git-maquininha-gean-douglas-projects.vercel.app
 
-(scope = `gean-douglas-projects`, descoberto pela API de deployments do GitHub —
-não precisa perguntar de novo.)
+Como foi: APK montado às **14:41** apontando pra esse endereço; o Gean instalou;
+às **14:59** foi publicada uma tarja verde no `main.jsx`; ele fechou, abriu e
+**viu a tarja sem baixar APK nenhum**. A faixa era 18 min mais nova que o
+aplicativo instalado — não tinha como estar dentro dele.
 
-Mas **todo preview responde 302 pra `vercel.com/sso-api`**, ou seja, exige login
-da Vercel. Medido em 28/08:
+A faixa já foi removida (`d87aac3`); `src/main.jsx` está byte a byte igual ao
+`dcc2699`.
 
-| Endereço | Resposta |
-| --- | --- |
-| `breja-comanda.vercel.app` (produção) | **200**, aberto |
-| `ceo-comanda.vercel.app` | **200**, aberto |
-| qualquer preview da branch | **302 → SSO da Vercel** |
+**Obstáculo que apareceu e foi vencido no caminho:** a Vercel liga
+**Deployment Protection** nos previews por padrão — todo preview respondia
+`302` pro SSO, e dentro da casca isso viraria tela de login da Vercel. O Gean
+desligou em Settings → Deployment Protection → Vercel Authentication →
+Disabled. Se um dia o preview voltar a pedir login, é isso.
 
-Dentro da casca isso apareceria como **tela de login da Vercel** no lugar do
-Comanda. Por isso o APK ainda aponta pra produção.
+**⚠️ DESCOBERTA IMPORTANTE — a atualização chega na SEGUNDA abertura.**
 
-**Conserto (só o Gean pode, é conta dele):** Vercel → projeto `breja-comanda` →
-**Settings → Deployment Protection → Vercel Authentication → Disabled**.
+A faixa só apareceu quando o Gean "fez tudo de novo". O motivo está no
+`vite.config.js`: o projeto usa `vite-plugin-pwa` com `registerType:
+'autoUpdate'` e `navigateFallback: '/index.html'`. O service worker serve a
+versão guardada na primeira abertura e baixa a nova **por trás**; só na
+abertura seguinte a mudança aparece.
 
-Não abre buraco de segurança: o preview passa a ser o mesmo tipo de página
-pública que a produção já é, e os dados continuam atrás do login do Comanda e
-do RLS do Supabase.
+Isso **não invalida** nada — o conteúdo continua vindo do site e não do APK.
+Mas corrige a frase: não é "na hora", é "na próxima vez que abrir". Pro bar,
+significa que uma troca de preço pode levar uma abertura pra chegar no
+aparelho do garçom.
 
-**Restante da parte do Gean:**
+**A tratar depois** (não é urgente, mas não pode ser esquecido): avisar na
+tela que há versão nova, em vez de deixar o garçom descobrir sozinho. O
+`vite-plugin-pwa` tem gancho pronto pra isso.
+
+**Parte do Gean, ainda pendente:**
 
 1. Apertar o botão de backup **de novo** (o de antes não tinha `caixas`).
-2. Desligar a Deployment Protection (acima).
-3. Começar os cadastros de parceiro (item 10).
+2. Começar os cadastros de parceiro (item 10).
+3. O teste do A930 (item 3) — instalar o APK numa maquininha e fotografar.
 
 **✅ Primeiro APK montado com sucesso** (2m04s, run `33198325639`):
 <https://github.com/Gean-766/breja-comanda/actions/runs/33198325639> →
@@ -351,7 +361,7 @@ Da etapa 0 à 6 não precisa de cadastro nem de dinheiro.
 | 1 | Tirar a casca do PC | ✅ commit `fa9d714` |
 | 2 | Branch `maquininha` + endereço de teste | ✅ branch no ar — **falta o Gean me passar a URL da Vercel** |
 | 3 | O A930 aguenta a tela? | ⏳ Gean, com a máquina na mão. Foto da tela |
-| 4 | Casca no celular + prova da atualização ao vivo | ⏳ depende da URL da etapa 2 |
+| 4 | Casca no celular + prova da atualização ao vivo | ✅ **provado** em 28/08 |
 | 5 | Casca dentro da maquininha (cabo USB) | ⏳ |
 | 6 | Ponte de mentira + comanda só fecha se APROVADO | ⏳ mexe no `src/App.jsx` |
 | 7 | 1º adaptador real (a marca que o cadastro liberar) | 💰 R$ 1,00 de verdade |
