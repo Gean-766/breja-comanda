@@ -1,0 +1,11 @@
+# gerados pelo Capacitor a cada "cap sync" — nao entram no repositorio
+android/app/src/main/assets/public/
+android/app/src/main/assets/capacitor.config.json
+android/app/src/main/assets/capacitor.plugins.json
+
+# gerados pelo Gradle ao montar o APK
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/captures/

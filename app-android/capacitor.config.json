@@ -1,0 +1,13 @@
+{
+  "appId": "br.com.comanda.app",
+  "appName": "Comanda",
+  "webDir": "www",
+  "android": {
+    "allowMixedContent": false
+  },
+  "server": {
+    "url": "https://breja-comanda.vercel.app",
+    "androidScheme": "https",
+    "cleartext": false
+  }
+}

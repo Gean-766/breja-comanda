@@ -1,0 +1,16 @@
+{
+  "name": "comanda-casca",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Casca Android do Comanda: por fora e um app, por dentro e o site de sempre.",
+  "scripts": {
+    "sync": "cap sync android"
+  },
+  "dependencies": {
+    "@capacitor/android": "^6.2.0",
+    "@capacitor/core": "^6.2.0"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^6.2.0"
+  }
+}
