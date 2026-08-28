@@ -369,6 +369,17 @@ o carimbo `ComandaApp/1` no User-Agent (posto via `appendUserAgent` no
 
     localStorage.setItem('comanda.maquininha', 'simular')
 
+**✅ TESTADO NO ANDROID EM 28/08, pelo Gean:**
+
+| Teste | Resultado |
+| --- | --- |
+| Débito → Aprovar | `Aprovado (simulação) · NSU 475993` — comanda fechou |
+| Débito → Recusar | `Cartão recusado pela operadora. A comanda continua aberta` ✓ |
+| Dinheiro (sem janela) | ainda não conferido — checar numa próxima |
+
+O NSU já volta no formato que a maquininha de verdade devolve, então o
+adaptador real entra sem o Comanda precisar mudar.
+
 **O simulador é temporário.** Janelinha com tarja dourada onde a PESSOA decide
 aprovado/recusado. Existe pra testar o caminho da **recusa**, que é o perigoso
 e que não dá pra provocar de propósito numa máquina de verdade. **Apagar
@@ -406,12 +417,28 @@ Da etapa 0 à 6 não precisa de cadastro nem de dinheiro.
 | 3 | O A930 aguenta a tela? | ⏳ Gean, com a máquina na mão. Foto da tela |
 | 4 | Casca no celular + prova da atualização ao vivo | ✅ **provado** em 28/08 |
 | 5 | Casca dentro da maquininha (cabo USB) | ⏳ |
-| 6 | Ponte de mentira + comanda só fecha se APROVADO | ✅ escrito (`5bfa095`) — falta o Gean testar |
+| 6 | Ponte de mentira + comanda só fecha se APROVADO | ✅ **testado e aprovado** em 28/08 |
 | 7 | 1º adaptador real (a marca que o cadastro liberar) | 💰 R$ 1,00 de verdade |
 | 8 | Homologação na loja da adquirente | ⏳ |
 | 9 | Os outros quatro adaptadores | ⏳ |
 | 10 | Bola 7 | ⏳ **por último, sempre** |
 
-**Próxima coisa a fazer quando retomar:** conferir se o Gean já passou a URL da
-branch. Com ela, apontar `server.url` no `app-android/capacitor.config.json`
-pro ambiente de teste e tocar a etapa 4.
+**Próxima coisa a fazer quando retomar:**
+
+Tudo que dava pra fazer sem máquina física e sem cadastro **está feito**. O
+projeto agora depende da fileira do Gean (etapas 3, 5 e 7).
+
+Enquanto ele corre atrás, o que sobra de útil pra eu fazer, em ordem:
+
+1. **O aviso de versão nova** (ver item 1). O service worker entrega a versão
+   guardada na primeira abertura; hoje o garçom não tem como saber que existe
+   coisa nova. É o único item que melhora o bar de HOJE, não só a maquininha.
+   Mexe no `main.jsx` + `vite.config.js`.
+2. **Conferir o teste 3** (dinheiro fecha direto, sem janela) — 30 segundos,
+   só não deu tempo.
+3. **Esqueleto dos adaptadores** — a pasta e o contrato Kotlin, sem SDK
+   nenhum. Adianta pouco e arrisca envelhecer antes de servir. Só se der
+   vontade.
+
+**Não começar adaptador de marca nenhuma antes de ter a máquina na mão.**
+Integração escrita no escuro se joga fora.
