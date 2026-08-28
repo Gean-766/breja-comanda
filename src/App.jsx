@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { supabase, isConfigured } from './supabase.js'
 import { temMaquininha, ehCartao, cobrar, emCentavos, registrarSimulador } from './maquininha.js'
+import { ligarAvisoDeVersao, aplicarVersaoNova } from './atualizacao.js'
 
 const money = (n) => 'R$ ' + Number(n || 0).toFixed(2).replace('.', ',')
 const hora = (ts) =>
@@ -307,6 +308,13 @@ export default function App({ distribuidora = null, onSair = null }) {
   // (fechar comanda, venda de balcão e conta dividida) passam por aqui antes
   // de escrever qualquer coisa no banco.
   const [maqPedido, setMaqPedido] = useState(null) // a janelinha do simulador
+
+  // Versão nova publicada: acende uma tarja discreta em vez de trocar a tela
+  // no meio de um pedido. Ver src/atualizacao.js pro porquê.
+  const [temVersaoNova, setTemVersaoNova] = useState(false)
+  useEffect(() => {
+    ligarAvisoDeVersao(() => setTemVersaoNova(true))
+  }, [])
 
   // O simulador vive no App porque é ele que tem tela. A ponte só o chama.
   useEffect(() => {
@@ -1420,6 +1428,25 @@ export default function App({ distribuidora = null, onSair = null }) {
               {toast.acao.label}
             </button>
           )}
+        </div>
+      )}
+
+      {/* Versão nova. Tarja fina embaixo, fora do caminho do dedo: o botão de
+          atualizar é pequeno e separado de propósito, pra ninguém recarregar a
+          tela sem querer no meio de lançar uma comanda. */}
+      {temVersaoNova && (
+        <div className="versao-nova">
+          <span className="versao-nova-txt">✨ Tem uma versão nova do Comanda</span>
+          <button className="versao-nova-btn" onClick={aplicarVersaoNova}>
+            Atualizar
+          </button>
+          <button
+            className="versao-nova-x"
+            onClick={() => setTemVersaoNova(false)}
+            aria-label="Agora não"
+          >
+            ✕
+          </button>
         </div>
       )}
 

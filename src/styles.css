@@ -3033,6 +3033,49 @@ input[type='number'] {
 }
 
 /* ---------------------------------------------------------------------------
+   VERSÃO NOVA — a tarja fina que avisa que saiu atualização.
+   Embaixo e discreta de propósito: não pode tapar comanda nem preço, e o botão
+   é pequeno pra ninguém recarregar a tela sem querer no meio de um pedido.
+   O ✕ existe porque teimar com quem está no aperto é pior que esperar.
+--------------------------------------------------------------------------- */
+.versao-nova {
+  position: fixed;
+  left: 10px;
+  right: 10px;
+  bottom: calc(10px + env(safe-area-inset-bottom));
+  z-index: 55;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--card2);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.45);
+}
+.versao-nova-txt {
+  flex: 1;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
+}
+.versao-nova-btn {
+  border: none;
+  border-radius: 9px;
+  padding: 8px 14px;
+  background: var(--accent2);
+  color: #06210f;
+  font-size: 13px;
+  font-weight: 800;
+}
+.versao-nova-x {
+  border: none;
+  background: none;
+  color: var(--muted);
+  font-size: 15px;
+  padding: 4px 2px;
+}
+
+/* ---------------------------------------------------------------------------
    MAQUININHA — a janelinha da SIMULAÇÃO.
    Puxada de propósito pra cara de "isto não é o app normal": tarja listrada no
    topo e moldura dourada. Ninguém pode confundir esta tela com uma cobrança de

@@ -6,8 +6,15 @@ export default defineConfig({
   plugins: [
     react(),
     VitePWA({
-      registerType: 'autoUpdate',
-      injectRegister: 'auto',
+      // 'prompt' e não 'autoUpdate': com autoUpdate a versão nova trocava
+      // sozinha e em silêncio — o garçom seguia com a tela antiga sem saber
+      // que existia coisa nova, e uma troca de preço podia demorar a noite
+      // toda pra chegar nele. Agora o app AVISA e ele toca pra atualizar.
+      // Ver src/atualizacao.js.
+      registerType: 'prompt',
+      // o registro passou a ser feito na mão (src/atualizacao.js), porque é
+      // de lá que sai o aviso na tela
+      injectRegister: null,
       includeAssets: ['apple-touch-icon.png'],
       manifest: {
         name: 'BREJA & CIA — Comanda',
