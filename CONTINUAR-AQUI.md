@@ -50,12 +50,42 @@ R$ 50,00, vence dia 14, ativo.
     git log --oneline -1 origin/main            # tem que dar dcc2699
     git diff --name-only dcc2699 origin/maquininha -- src/   # tem que vir vazio
 
-**Onde parou de verdade:** esperando o Gean fazer a parte dele —
+**✅ A casca funciona.** O Gean instalou o APK num Android e entrou com a conta
+`teste`: abriu normal, tela cheia, carregando o site ao vivo. A casca Capacitor
+está provada.
+
+**🔴 TRAVA ATUAL — Deployment Protection da Vercel.**
+
+O endereço da branch existe e é:
+
+    https://breja-comanda-git-maquininha-gean-douglas-projects.vercel.app
+
+(scope = `gean-douglas-projects`, descoberto pela API de deployments do GitHub —
+não precisa perguntar de novo.)
+
+Mas **todo preview responde 302 pra `vercel.com/sso-api`**, ou seja, exige login
+da Vercel. Medido em 28/08:
+
+| Endereço | Resposta |
+| --- | --- |
+| `breja-comanda.vercel.app` (produção) | **200**, aberto |
+| `ceo-comanda.vercel.app` | **200**, aberto |
+| qualquer preview da branch | **302 → SSO da Vercel** |
+
+Dentro da casca isso apareceria como **tela de login da Vercel** no lugar do
+Comanda. Por isso o APK ainda aponta pra produção.
+
+**Conserto (só o Gean pode, é conta dele):** Vercel → projeto `breja-comanda` →
+**Settings → Deployment Protection → Vercel Authentication → Disabled**.
+
+Não abre buraco de segurança: o preview passa a ser o mesmo tipo de página
+pública que a produção já é, e os dados continuam atrás do login do Comanda e
+do RLS do Supabase.
+
+**Restante da parte do Gean:**
 
 1. Apertar o botão de backup **de novo** (o de antes não tinha `caixas`).
-2. Pegar no painel da Vercel o **endereço da branch `maquininha`**
-   (formato `breja-comanda-git-maquininha-....vercel.app`) e me passar.
-   Sem ele eu não consigo apontar a casca pro ambiente de teste.
+2. Desligar a Deployment Protection (acima).
 3. Começar os cadastros de parceiro (item 10).
 
 **✅ Primeiro APK montado com sucesso** (2m04s, run `33198325639`):
