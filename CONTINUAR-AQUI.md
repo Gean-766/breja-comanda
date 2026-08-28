@@ -334,6 +334,49 @@ aproximação. Cada marca custa algumas transações de R$ 1,00 com estorno.
 
 ---
 
+## 10.5 A PONTE — COMO ESTÁ FEITA (28/08, commit `5bfa095`)
+
+**Arquivo:** `src/maquininha.js`. Um contrato só. O Comanda nunca fala com
+marca nenhuma — pede *"cobra R$ 47,50 no débito"* e recebe aprovado ou
+recusado. Cada marca nova entra ali como peça pequena.
+
+**O pedágio:** `cobrarSePreciso(forma, valor)` no `App.jsx`. As **três** portas
+por onde entra dinheiro passam por ele **antes** de escrever no banco:
+
+| Função | O que é |
+| --- | --- |
+| `fecharConta` | Fechar a comanda |
+| `venderBalcao` | Venda rápida |
+| `pagarParte` | Conta dividida |
+
+**Recusou → nada é gravado, comanda continua aberta.** Era o furo: antes ela
+fechava no toque do botão.
+
+**Como fica de fora (e por quê):**
+
+- **Navegador comum** — `temMaquininha()` é false fora da casca. O bar que está
+  vendendo hoje roda o caminho de sempre, sem um toque a mais.
+- **Dinheiro e Pix** — só `credito` e `debito` veem a máquina.
+- **`noiteRetro`** — correção de esquecimento; o dinheiro entrou naquela noite,
+  passar de novo seria cobrar duas vezes.
+- **Conta dividida** — cobra o que **falta**, não o total. Cobrar `r.total`
+  passaria o valor cheio no cartão do último amigo depois de os outros já terem
+  pago.
+
+**Detecção da casca:** três sinais, em `temMaquininha()` — `window.Capacitor`,
+o carimbo `ComandaApp/1` no User-Agent (posto via `appendUserAgent` no
+`capacitor.config.json`) e uma chave de localStorage pra testar no PC:
+
+    localStorage.setItem('comanda.maquininha', 'simular')
+
+**O simulador é temporário.** Janelinha com tarja dourada onde a PESSOA decide
+aprovado/recusado. Existe pra testar o caminho da **recusa**, que é o perigoso
+e que não dá pra provocar de propósito numa máquina de verdade. **Apagar
+quando o primeiro adaptador real entrar** (o bloco `maqPedido` no `App.jsx` e
+as classes `.maq-*` no `styles.css`).
+
+---
+
 ## 11. REGRAS QUE NÃO PODEM SER QUEBRADAS
 
 - **O bar está trabalhando.** Mudança é aditiva. Não apaga estoque, não apaga
@@ -343,10 +386,10 @@ aproximação. Cada marca custa algumas transações de R$ 1,00 com estorno.
 - **O relógio do aparelho é UTC-4** (1h atrás de São Paulo). Todo SQL com data
   precisa de `at time zone 'America/Cuiaba'`. Ver `supabase/caixa-corrige-dia.sql`.
 - **Nada de venda fora de caixa aberto.** Pedido explícito do dono.
-- **Só marca a comanda como paga quando a cobrança voltar APROVADA.** Hoje é
-  marcada no toque do botão; com maquininha no meio isso TEM que mudar, senão
-  transação recusada deixa comanda fechada e gaveta furada. Mudança no
-  `src/App.jsx`, não na casca.
+- **Só marca a comanda como paga quando a cobrança voltar APROVADA.**
+  ✅ **Feito em 28/08** (`5bfa095`) — ver item 10.5. Se alguém mexer nas três
+  funções que gravam dinheiro (`fecharConta`, `venderBalcao`, `pagarParte`),
+  o `cobrarSePreciso` TEM que continuar vindo antes do banco.
 
 ---
 
@@ -363,7 +406,7 @@ Da etapa 0 à 6 não precisa de cadastro nem de dinheiro.
 | 3 | O A930 aguenta a tela? | ⏳ Gean, com a máquina na mão. Foto da tela |
 | 4 | Casca no celular + prova da atualização ao vivo | ✅ **provado** em 28/08 |
 | 5 | Casca dentro da maquininha (cabo USB) | ⏳ |
-| 6 | Ponte de mentira + comanda só fecha se APROVADO | ⏳ mexe no `src/App.jsx` |
+| 6 | Ponte de mentira + comanda só fecha se APROVADO | ✅ escrito (`5bfa095`) — falta o Gean testar |
 | 7 | 1º adaptador real (a marca que o cadastro liberar) | 💰 R$ 1,00 de verdade |
 | 8 | Homologação na loja da adquirente | ⏳ |
 | 9 | Os outros quatro adaptadores | ⏳ |
