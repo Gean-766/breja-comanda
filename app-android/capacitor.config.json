@@ -3,7 +3,8 @@
   "appName": "Comanda",
   "webDir": "www",
   "android": {
-    "allowMixedContent": false
+    "allowMixedContent": false,
+    "appendUserAgent": "ComandaApp/1"
   },
   "server": {
     "url": "https://breja-comanda-git-maquininha-gean-douglas-projects.vercel.app",

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { supabase, isConfigured } from './supabase.js'
+import { temMaquininha, ehCartao, cobrar, emCentavos, registrarSimulador } from './maquininha.js'
 
 const money = (n) => 'R$ ' + Number(n || 0).toFixed(2).replace('.', ',')
 const hora = (ts) =>
@@ -295,6 +296,50 @@ export default function App({ distribuidora = null, onSair = null }) {
     toastTimer.current = setTimeout(() => setToast(null), opts.acao ? 6000 : 3500)
   }
   const erro = (msg) => mostrarToast(msg, { tipo: 'erro' })
+
+  // ==================== MAQUININHA ====================
+  // A regra que manda aqui: DINHEIRO NÃO SE MARCA COMO RECEBIDO ANTES DE
+  // ENTRAR. Até hoje a comanda fechava no toque do botão — com a maquininha no
+  // meio isso deixaria a comanda fechada e a gaveta furada toda vez que uma
+  // transação fosse recusada, e ninguém veria o erro acontecer.
+  //
+  // `cobrarSePreciso` é o pedágio: as TRÊS portas por onde entra dinheiro
+  // (fechar comanda, venda de balcão e conta dividida) passam por aqui antes
+  // de escrever qualquer coisa no banco.
+  const [maqPedido, setMaqPedido] = useState(null) // a janelinha do simulador
+
+  // O simulador vive no App porque é ele que tem tela. A ponte só o chama.
+  useEffect(() => {
+    registrarSimulador(
+      ({ centavos, forma }) =>
+        new Promise((resolver) => setMaqPedido({ centavos, forma, resolver }))
+    )
+    return () => registrarSimulador(null)
+  }, [])
+
+  // Devolve true = pode seguir e gravar. false = NÃO grava nada.
+  //
+  // Quem não passa pela maquininha (dinheiro, Pix, navegador comum, ou
+  // pagamento de noite passada que já entrou lá atrás) devolve true na hora,
+  // sem um passo a mais. É isso que mantém o bar de hoje funcionando igual.
+  async function cobrarSePreciso(forma, valorEmReais) {
+    if (!ehCartao(forma)) return true
+    if (!temMaquininha()) return true
+    const centavos = emCentavos(valorEmReais)
+    if (centavos <= 0) return true
+    const r = await cobrar({ centavos, forma })
+    if (r?.ok) {
+      mostrarToast(
+        'Aprovado ✓' + (r.simulado ? ' (simulação)' : '') + (r.nsu ? ` · NSU ${r.nsu}` : ''),
+        { tipo: 'ok' }
+      )
+      return true
+    }
+    // Recusou: a comanda continua ABERTA, de propósito. É o ponto inteiro
+    // desta mudança — o freguês tenta outro cartão e nada se perdeu.
+    erro('❌ ' + (r?.motivo || 'Pagamento não aprovado.') + ' A comanda continua aberta.')
+    return false
+  }
 
   async function carregar() {
     if (!isConfigured) {
@@ -740,6 +785,23 @@ export default function App({ distribuidora = null, onSair = null }) {
   async function fecharConta(cliente_id, forma = null, noiteRetro = null) {
     const cli = clientes.find((c) => c.id === cliente_id)
     const r = resumo[cliente_id] || { total: 0, qtd: 0 }
+    // MAQUININHA. Vem antes de tocar no banco: se recusar, a comanda tem que
+    // continuar aberta como se nada tivesse sido tentado.
+    //
+    // Cobra o que FALTA, não o total: numa conta dividida os amigos já pagaram
+    // pedaços, e é exatamente o "falta pagar" que a tela mostra na hora de
+    // confirmar. Cobrar `r.total` aqui passaria o valor cheio no cartão do
+    // último — dinheiro a mais na mão do freguês errado.
+    //
+    // `noiteRetro` NÃO passa pela máquina de propósito: é a correção de
+    // esquecimento — o freguês pagou naquela noite e a comanda só ficou aberta
+    // no app. Cobrar de novo agora seria cobrar duas vezes o mesmo consumo.
+    const jaPago = parciais
+      .filter((p) => p.cliente_id === cliente_id)
+      .reduce((s, p) => s + Number(p.valor || 0), 0)
+    const aCobrar = Math.max(0, r.total - jaPago)
+    if (!noiteRetro && !(await cobrarSePreciso(forma, aCobrar))) return
+
     const pago_em = new Date(
       noiteRetro ? fimDoDia(noiteRetro, caixas, virada) - 1000 : Date.now()
     ).toISOString()
@@ -873,6 +935,13 @@ export default function App({ distribuidora = null, onSair = null }) {
   // e o relatório conta, exatamente como qualquer venda, sem trabalho extra.
   async function venderBalcao(itens, forma = null) {
     if (!itens?.length) return
+    // MAQUININHA antes de criar a venda: recusou, nada é gravado e o carrinho
+    // continua montado na tela pro freguês tentar outro cartão.
+    // mesma conta do carrinho na tela (VendaBalcao), pra cobrar exatamente o
+    // que o freguês está vendo
+    const totalCarrinho = itens.reduce((s, it) => s + Number(it.cerveja.preco) * it.qtd, 0)
+    if (!(await cobrarSePreciso(forma, totalCarrinho))) return
+
     const nome = 'Balcão ' + hora(Date.now())
     const pago_em = new Date().toISOString()
     // tenta gravar a forma; se a coluna ainda não existe no banco, vende sem ela
@@ -922,6 +991,10 @@ export default function App({ distribuidora = null, onSair = null }) {
   async function pagarParte(cliente_id, valor, qtd = null, itens = null, forma = null) {
     const v = Number(valor) || 0
     if (v <= 0) return
+    // MAQUININHA antes de registrar: a parte do amigo que passou cartão só
+    // entra na conta depois de aprovada. Recusou, a mesa continua devendo o
+    // mesmo tanto e ele tenta outro cartão.
+    if (!(await cobrarSePreciso(forma, v))) return
     // guarda QUAIS garrafas foram pagas (no obs, em JSON) — assim a garrafa já paga
     // some da lista de "escolher garrafas" e o verde/vermelho do movimento bate.
     const obs = itens && itens.length ? JSON.stringify(itens) : null
@@ -1347,6 +1420,65 @@ export default function App({ distribuidora = null, onSair = null }) {
               {toast.acao.label}
             </button>
           )}
+        </div>
+      )}
+
+      {/* MAQUININHA — SIMULAÇÃO. Não cobra nada, não fala com máquina nenhuma:
+          quem decide aprovado/recusado é a pessoa. Existe pra dar pra testar o
+          caminho da RECUSA, que é o perigoso e que não dá pra provocar de
+          propósito numa máquina de verdade. Some quando o primeiro adaptador
+          real entrar. */}
+      {maqPedido && (
+        <div className="pag-overlay">
+          <div className="pag-box maq-box">
+            <span className="maq-tarja">SIMULAÇÃO — nenhum valor é cobrado</span>
+            <p className="pag-titulo">Passe o cartão na maquininha</p>
+            <strong className="pag-total">{money(maqPedido.centavos / 100)}</strong>
+            <span className="pag-sub">{rotuloForma(maqPedido.forma)}</span>
+            <div className="maq-botoes">
+              <button
+                className="pag-forma maq-ok"
+                onClick={() => {
+                  maqPedido.resolver({
+                    ok: true,
+                    nsu: String(Date.now()).slice(-6),
+                    aut: String(Math.floor(Math.random() * 900000) + 100000),
+                    bandeira: 'SIMULADO',
+                    simulado: true,
+                  })
+                  setMaqPedido(null)
+                }}
+              >
+                ✓ Aprovar
+              </button>
+              <button
+                className="pag-forma maq-nao"
+                onClick={() => {
+                  maqPedido.resolver({
+                    ok: false,
+                    motivo: 'Cartão recusado pela operadora.',
+                    simulado: true,
+                  })
+                  setMaqPedido(null)
+                }}
+              >
+                ✕ Recusar
+              </button>
+            </div>
+            <button
+              className="pag-cancelar"
+              onClick={() => {
+                maqPedido.resolver({
+                  ok: false,
+                  motivo: 'Cobrança cancelada.',
+                  simulado: true,
+                })
+                setMaqPedido(null)
+              }}
+            >
+              Cancelar
+            </button>
+          </div>
         </div>
       )}
 

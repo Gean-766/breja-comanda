@@ -3031,6 +3031,44 @@ input[type='number'] {
 .pag-forma-ic {
   font-size: 26px;
 }
+
+/* ---------------------------------------------------------------------------
+   MAQUININHA — a janelinha da SIMULAÇÃO.
+   Puxada de propósito pra cara de "isto não é o app normal": tarja listrada no
+   topo e moldura dourada. Ninguém pode confundir esta tela com uma cobrança de
+   verdade — nem o Gean testando, nem um garçom que pegue o aparelho sem saber.
+   Sai inteira quando o primeiro adaptador de verdade entrar.
+--------------------------------------------------------------------------- */
+.maq-box {
+  border: 2px solid var(--accent);
+  border-bottom: none;
+}
+.maq-tarja {
+  align-self: center;
+  padding: 5px 12px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--accent-dark);
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+/* Aprovar e Recusar do MESMO tamanho, lado a lado. Se o "recusar" fosse um
+   link discreto, ninguém testaria o caminho que mais importa. */
+.maq-botoes {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.maq-ok {
+  background: var(--accent2);
+  color: #06210f;
+}
+.maq-nao {
+  background: var(--danger);
+  color: #2a0b06;
+}
 .pag-outro {
   border: none;
   border-radius: 12px;
