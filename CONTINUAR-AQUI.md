@@ -35,23 +35,34 @@ R$ 50,00, vence dia 14, ativo.
 
 ---
 
-## 1. ONDE PAROU
+## 1. ONDE PAROU — 28/08/2026, fim do dia
 
-**No ar pro bar de verdade:** commit `dcc2699` (aba Ontem). Testado, funcionando.
+**Etapas 0, 1 e 2 do roteiro: FEITAS.** Nada mais solto no PC.
 
-**Só no PC do Gean, SEM commit e SEM push:**
+| Repositório | Branch | Commit | O que é |
+| --- | --- | --- | --- |
+| `ceo-comanda` | `main` | `ff43208` | Backup do painel agora salva `caixas` |
+| `breja-comanda` | `main` | `dcc2699` | **CONGELADO.** É o que o bar usa pra vender |
+| `breja-comanda` | `maquininha` | `fa9d714` | A casca, o robô do APK e este arquivo |
 
-| Pasta / arquivo | O que é |
-| --- | --- |
-| `app-android/` | A casca Capacitor, já gerada e configurada (59 arquivos) |
-| `.github/workflows/apk.yml` | O robô que monta o APK no GitHub |
-| `supabase/backup-gera-restauracao.sql` | Backup antigo, com furo (ver item 7) |
-| `CONTINUAR-AQUI.md` | Este arquivo |
+**`src/` continua intacto.** Confere com:
 
-**`src/` está intacto desde o último push.** Confere com:
+    git log --oneline -1 origin/main            # tem que dar dcc2699
+    git diff --name-only dcc2699 origin/maquininha -- src/   # tem que vir vazio
 
-    git log --oneline -1 origin/main     # tem que dar dcc2699
-    git status --porcelain -- src/       # tem que vir vazio
+**Onde parou de verdade:** esperando o Gean fazer a parte dele —
+
+1. Apertar o botão de backup **de novo** (o de antes não tinha `caixas`).
+2. Pegar no painel da Vercel o **endereço da branch `maquininha`**
+   (formato `breja-comanda-git-maquininha-....vercel.app`) e me passar.
+   Sem ele eu não consigo apontar a casca pro ambiente de teste.
+3. Começar os cadastros de parceiro (item 10).
+
+**Já rodando sozinho:** o GitHub Actions montou o primeiro APK no push da
+branch. Baixa em **Actions → a execução mais recente → Artifacts →
+`comanda-apk`**. Esse primeiro APK ainda aponta pra **produção**
+(`server.url` no `capacitor.config.json`) — serve pro teste do item 3
+(a tela aguenta o Android 7.1?), entrando com a conta `teste`.
 
 ---
 
@@ -178,13 +189,24 @@ Ele cobre 9 tabelas, em `ceo-comanda/api/admin.js` → `ALLOWED_TABLES`:
     distribuidoras, pagamentos, cervejas, clientes, consumos,
     historico, estoque_entradas, pagamentos_parciais, perdas
 
-**O que falta ali:**
+**✅ FEITO em 28/08** (commit `ff43208` no `ceo-comanda`): `caixas` entrou, em
+dois lugares — `BKP_TABELAS` no `index.html` (a lista que o painel percorre) e
+`ALLOWED_TABLES` no `api/admin.js` (a whitelist do gateway). Sem a segunda o
+servidor recusaria a leitura.
 
-- ❌ `caixas` — os turnos. Justo o que a gente acabou de consertar.
-- ❌ `caixas_dia_backup` — o desfazer daquela correção.
+**❌ `caixas_dia_backup` ficou de fora DE PROPÓSITO.** Não é esquecimento:
 
-**O conserto é acrescentar essas duas na lista** — no `ceo-comanda`, não no
-`breja-comanda`. É mudança pequena, aditiva, e o Gean já sabe usar o botão.
+- não tem `distribuidora_id` nem `created_at` — e o backup filtra e ordena
+  por esses dois;
+- a chave dela é `caixa_id`, não `id` — o `on conflict (id)` sairia errado;
+- a RLS dela é **fechada sem policy nenhuma**, de propósito, pra API não
+  enxergar (ver `supabase/caixa-corrige-dia.sql`).
+
+Forçar ela ali quebraria o botão ou obrigaria a abrir esse lacre. E não
+compensa: ela é **foto congelada** de uma correção antiga, não muda mais.
+Salvar uma vez pelo SQL Editor resolve pra sempre:
+
+    select * from public.caixas_dia_backup;
 
 O `supabase/backup-gera-restauracao.sql` (o dos 5 SELECTs manuais, preso na
 Bola 7) fica como plano B. **Não vale reescrever.**
@@ -284,11 +306,25 @@ aproximação. Cada marca custa algumas transações de R$ 1,00 com estorno.
 
 ---
 
-## 12. PRIMEIRA COISA A FAZER
+## 12. O ROTEIRO — onde estamos nele
 
-1. Ler este arquivo inteiro (principalmente o item 6).
-2. Conferir que `origin/main` está em `dcc2699` e `src/` limpo.
-3. **Backup:** acrescentar `caixas` e `caixas_dia_backup` no `ALLOWED_TABLES` do
-   `ceo-comanda/api/admin.js` (item 7). Pequeno, aditivo.
-4. Parar e esperar o Gean rodar o backup e conferir.
-5. Só então: criar a branch `maquininha` e subir a casca.
+Fileira A (papel, o Gean) e fileira B (código, eu) andam **em paralelo**.
+Da etapa 0 à 6 não precisa de cadastro nem de dinheiro.
+
+| # | Etapa | Estado |
+| --- | --- | --- |
+| 0 | Backup salvando `caixas` | ✅ no ar — falta o Gean apertar o botão |
+| 1 | Tirar a casca do PC | ✅ commit `fa9d714` |
+| 2 | Branch `maquininha` + endereço de teste | ✅ branch no ar — **falta o Gean me passar a URL da Vercel** |
+| 3 | O A930 aguenta a tela? | ⏳ Gean, com a máquina na mão. Foto da tela |
+| 4 | Casca no celular + prova da atualização ao vivo | ⏳ depende da URL da etapa 2 |
+| 5 | Casca dentro da maquininha (cabo USB) | ⏳ |
+| 6 | Ponte de mentira + comanda só fecha se APROVADO | ⏳ mexe no `src/App.jsx` |
+| 7 | 1º adaptador real (a marca que o cadastro liberar) | 💰 R$ 1,00 de verdade |
+| 8 | Homologação na loja da adquirente | ⏳ |
+| 9 | Os outros quatro adaptadores | ⏳ |
+| 10 | Bola 7 | ⏳ **por último, sempre** |
+
+**Próxima coisa a fazer quando retomar:** conferir se o Gean já passou a URL da
+branch. Com ela, apontar `server.url` no `app-android/capacitor.config.json`
+pro ambiente de teste e tocar a etapa 4.
