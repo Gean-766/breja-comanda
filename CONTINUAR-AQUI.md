@@ -88,9 +88,16 @@ Mas corrige a frase: não é "na hora", é "na próxima vez que abrir". Pro bar,
 significa que uma troca de preço pode levar uma abertura pra chegar no
 aparelho do garçom.
 
-**A tratar depois** (não é urgente, mas não pode ser esquecido): avisar na
-tela que há versão nova, em vez de deixar o garçom descobrir sozinho. O
-`vite-plugin-pwa` tem gancho pronto pra isso.
+**✅ RESOLVIDO em 28/08** (`0810ec2`, `src/atualizacao.js`): uma tarja fina
+embaixo avisa *"tem uma versão nova"* com botão Atualizar. O `vite.config.js`
+passou de `registerType: 'autoUpdate'` pra `'prompt'`, e o registro do service
+worker saiu do automático pro `src/atualizacao.js`.
+
+Fina, embaixo e com botão pequeno de propósito: recarregar a tela no meio de
+um pedido é pior que a versão velha. Tem ✕ pra dispensar.
+
+⚠️ **Ainda não testado no aparelho** — precisa de duas publicações seguidas
+pra ver a tarja aparecer.
 
 **Parte do Gean, ainda pendente:**
 
@@ -428,17 +435,14 @@ Da etapa 0 à 6 não precisa de cadastro nem de dinheiro.
 Tudo que dava pra fazer sem máquina física e sem cadastro **está feito**. O
 projeto agora depende da fileira do Gean (etapas 3, 5 e 7).
 
-Enquanto ele corre atrás, o que sobra de útil pra eu fazer, em ordem:
+**Acabou o que dava pra fazer sem máquina física e sem cadastro.** Feito até
+aqui: etapas 0, 1, 2, 4 e 6, mais o aviso de versão nova.
 
-1. **O aviso de versão nova** (ver item 1). O service worker entrega a versão
-   guardada na primeira abertura; hoje o garçom não tem como saber que existe
-   coisa nova. É o único item que melhora o bar de HOJE, não só a maquininha.
-   Mexe no `main.jsx` + `vite.config.js`.
-2. **Conferir o teste 3** (dinheiro fecha direto, sem janela) — 30 segundos,
-   só não deu tempo.
-3. **Esqueleto dos adaptadores** — a pasta e o contrato Kotlin, sem SDK
-   nenhum. Adianta pouco e arrisca envelhecer antes de servir. Só se der
-   vontade.
+Sobrou só conferir, quando der:
+
+1. **Teste 3** — Dinheiro fecha direto, sem janela de maquininha. 30 segundos.
+2. **A tarja de versão nova** — precisa de duas publicações seguidas pra ver.
 
 **Não começar adaptador de marca nenhuma antes de ter a máquina na mão.**
-Integração escrita no escuro se joga fora.
+Integração escrita no escuro se joga fora — e o A930 ainda nem se sabe se
+aguenta a tela (item 3).
