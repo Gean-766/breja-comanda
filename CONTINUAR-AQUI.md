@@ -58,9 +58,13 @@ R$ 50,00, vence dia 14, ativo.
    Sem ele eu não consigo apontar a casca pro ambiente de teste.
 3. Começar os cadastros de parceiro (item 10).
 
-**Já rodando sozinho:** o GitHub Actions montou o primeiro APK no push da
-branch. Baixa em **Actions → a execução mais recente → Artifacts →
-`comanda-apk`**. Esse primeiro APK ainda aponta pra **produção**
+**✅ Primeiro APK montado com sucesso** (2m04s, run `33198325639`):
+<https://github.com/Gean-766/breja-comanda/actions/runs/33198325639> →
+Artifacts → `comanda-apk`. Ou seja, o robô funciona de ponta a ponta.
+(Duas advertências de "deprecated" no log — `setup-java@v4` e Node 20. Não
+quebram nada hoje; trocar por `@v5` quando sobrar tempo.)
+
+Esse primeiro APK ainda aponta pra **produção**
 (`server.url` no `capacitor.config.json`) — serve pro teste do item 3
 (a tela aguenta o Android 7.1?), entrando com a conta `teste`.
 
