@@ -1344,6 +1344,59 @@ input[type='number'] {
   color: var(--muted);
 }
 
+/* "Este aparelho: A3F2" — quem é este celular no meio dos outros do bar.
+   Nasceu do caso do Ceara (28/08): comanda apareceu fechada e ninguém sabia
+   de qual aparelho tinha partido. */
+.este-ap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 14px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--card);
+}
+.este-ap-txt {
+  flex: 1;
+  font-size: 13px;
+  color: var(--muted);
+}
+.este-ap-txt strong {
+  color: var(--text);
+}
+.este-ap-input {
+  flex: 1;
+  min-width: 0;
+  border: 1px solid var(--card2);
+  border-radius: 9px;
+  padding: 8px 10px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 14px;
+}
+.este-ap-btn {
+  border: none;
+  border-radius: 9px;
+  padding: 8px 12px;
+  background: var(--card2);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.este-ap-x {
+  border: none;
+  background: none;
+  color: var(--muted);
+  font-size: 14px;
+  padding: 4px;
+}
+
+/* de qual celular partiu a movimentação, na linha do histórico */
+.hist-ap {
+  color: var(--accent);
+}
+
 /* bloco = uma comanda (pessoa) */
 .hist-bloco {
   margin-bottom: 12px;
