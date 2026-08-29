@@ -4145,9 +4145,23 @@ function calcularEstoque(cervejas, entradas, consumos, perdas) {
     if (controlado) nivel = saldo <= 0 ? 'zero' : min > 0 && saldo <= min ? 'baixo' : 'ok'
     return { c, controlado, entrou, saiu, perdidas, saldo, custoUnit, min, nivel, ents }
   })
-  // o que precisa de compra sobe pro topo
-  const rank = { zero: 0, baixo: 1, ok: 2, novo: 3 }
-  return arr.sort((a, b) => rank[a.nivel] - rank[b.nivel] || a.c.nome.localeCompare(b.c.nome))
+  // ORDEM DA LISTA: do que tem MENOS pro que tem mais. Quem está acabando
+  // aparece primeiro, sem precisar rolar a tela atrás — a lista já é a ordem
+  // de quem precisa de compra.
+  //
+  // Saldo negativo (vendeu mais do que foi contado) sobe acima do zero, que é
+  // certo: além de ter acabado, tem conta errada pra acertar.
+  //
+  // NUNCA CONTADO fica no fim, sempre. O saldo dele é 0 por não ter contagem,
+  // não por ter acabado — se entrasse na fila junto com os zerados, os
+  // produtos que o dono ainda não contou inundariam o topo fingindo estar
+  // acabando, e o aviso de compra perderia a serventia.
+  return arr.sort(
+    (a, b) =>
+      Number(a.controlado ? 0 : 1) - Number(b.controlado ? 0 : 1) ||
+      (a.controlado ? a.saldo - b.saldo : 0) ||
+      a.c.nome.localeCompare(b.c.nome)
+  )
 }
 
 // O AVISO DE ESTOQUE na hora de lançar. É aqui que estoque e caixa se
