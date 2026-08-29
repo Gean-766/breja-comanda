@@ -35,15 +35,35 @@ R$ 50,00, vence dia 14, ativo.
 
 ---
 
-## 1. ONDE PAROU — 28/08/2026, fim do dia
+## 1. ONDE PAROU — 28/08/2026, fim do dia (madrugada do 29)
 
-**Etapas 0, 1 e 2 do roteiro: FEITAS.** Nada mais solto no PC.
+**Etapas 0, 1, 2, 4 e 6 do roteiro: FEITAS.** Nada mais solto no PC.
 
 | Repositório | Branch | Commit | O que é |
 | --- | --- | --- | --- |
 | `ceo-comanda` | `main` | `ff43208` | Backup do painel agora salva `caixas` |
-| `breja-comanda` | `main` | `dcc2699` | **CONGELADO.** É o que o bar usa pra vender |
-| `breja-comanda` | `maquininha` | `fa9d714` | A casca, o robô do APK e este arquivo |
+| `breja-comanda` | `main` | `674a450` | **O que o bar usa pra vender** |
+| `breja-comanda` | `maquininha` | `3394806` | Laboratório: casca, ponte, APK |
+
+### ⚠️ O `main` DEIXOU de estar congelado em 28/08
+
+Passou o dia inteiro em `dcc2699` e, no fim da noite, o Gean autorizou **quatro**
+publicações — nenhuma delas de maquininha:
+
+| Commit | O que foi |
+| --- | --- |
+| `8c25657` | O desfazer para de mentir quando falha |
+| `c2fdc27` | Estoque ordenado por quantidade |
+| `0144a26` | Estoque: a cor manda, quantidade ordena dentro dela |
+| `674a450` | Rastreio de aparelho no histórico |
+
+**A branch `maquininha` foi sincronizada depois de cada uma.** Conferido:
+`git log origin/maquininha..origin/main` = vazio. Se alguém publicar coisa nova
+no `main`, **sincronizar de novo** — senão a maquininha, ao ser juntada,
+desfaz os consertos.
+
+**A ponte da maquininha, o aviso de versão e a casca continuam SÓ na branch.**
+Conferido no bundle de produção a cada publicação: `ComandaApp` = 0.
 
 **`src/` continua intacto.** Confere com:
 
@@ -395,6 +415,56 @@ as classes `.maq-*` no `styles.css`).
 
 ---
 
+## 10.7 O CASO DO "CEARA" — e o que saiu dele (28/08)
+
+O Adenilton relatou **duas** coisas. Uma foi resolvida, a outra continua aberta.
+
+### O que aconteceu
+
+Comanda "Ceara": aberta 20:29, oito Brahma 600ml até 21:34, e às 21:36
+`Fechou/pagou a comanda de Ceara (R$ 96,00 · ⚡ Pix)`. Garçom disse que não
+fechou, a mulher dele disse que não, o dono não estava no bar.
+
+**Veredito: foi toque humano.** O `· ⚡ Pix` só sai quando alguém toca no botão
+Pix. O único caminho que fecha comanda sozinha (conta dividida quitada, em
+`sairDaComanda`) chama `fecharConta(id)` **sem forma** — sairia só `(R$ 96,00)`.
+Nada nosso causou: `main` estava em `dcc2699` desde 18/08, e o deploy de
+produção mais recente era daquele dia.
+
+### O que saiu disso
+
+1. **Bug real achado** — o `reverter` não conferia o erro do Supabase (que não
+   lança, devolve `{error}`). Falha silenciosa → histórico marcado como
+   desfeito → **botão ↩ Desfazer sumia pra sempre** e a tela dizia "Desfeito ✓".
+   Corrigido em `8c25657` com o helper `ok()`, nas 19 chamadas.
+2. **Rastreio de aparelho** (`674a450`) — pra o próximo caso ter resposta.
+
+### Sobre desfazer e estoque — entendimento que precisou ser corrigido
+
+O Gean achava que desfazer o fechamento tinha que **devolver o estoque**. Não:
+
+- **Caixa** → volta sozinho. O caixa conta pelo `pago_em`; zerar o campo tira
+  o dinheiro da noite. Nada a fazer.
+- **Estoque** → **não se mexe, e não pode mexer.** O estoque baixa quando o
+  item é LANÇADO (`consumos`), não quando é pago — `calcularEstoque` recebe
+  `cervejas, entradas, consumos, perdas` e **não olha a tabela de comandas**.
+  Devolver estoque no desfazer faria as garrafas reaparecerem na geladeira
+  enquanto o freguês ainda está bebendo — furo permanente na contagem.
+
+### ❓ AINDA EM ABERTO: o caso da Coca-Cola
+
+Segundo relato do mesmo dia, e **não foi investigado** — falta informação:
+*"abriu uma comanda de coca cola e não apareceu"*.
+
+Perguntar ao Adenilton antes de mexer em qualquer coisa:
+
+- Era uma comanda **chamada** "coca cola", ou uma Coca-Cola **lançada** numa
+  comanda?
+- "Não apareceu" **onde** — na lista de comandas, ou dentro da comanda?
+- Aconteceu uma vez só ou repetiu?
+
+---
+
 ## 11. REGRAS QUE NÃO PODEM SER QUEBRADAS
 
 - **O bar está trabalhando.** Mudança é aditiva. Não apaga estoque, não apaga
@@ -435,13 +505,34 @@ Da etapa 0 à 6 não precisa de cadastro nem de dinheiro.
 Tudo que dava pra fazer sem máquina física e sem cadastro **está feito**. O
 projeto agora depende da fileira do Gean (etapas 3, 5 e 7).
 
-**Acabou o que dava pra fazer sem máquina física e sem cadastro.** Feito até
-aqui: etapas 0, 1, 2, 4 e 6, mais o aviso de versão nova.
+**Acabou o que dava pra fazer sem máquina física e sem cadastro.** Feito:
+etapas 0, 1, 2, 4 e 6, mais o aviso de versão nova.
 
-Sobrou só conferir, quando der:
+### O que o Gean tem que fazer (é o gargalo agora)
 
-1. **Teste 3** — Dinheiro fecha direto, sem janela de maquininha. 30 segundos.
-2. **A tarja de versão nova** — precisa de duas publicações seguidas pra ver.
+1. **Cadastro de parceiro na Cielo** — porta mais aberta, certificação em 2
+   dias, integração gratuita por escrito.
+   <https://desenvolvedores.cielo.com.br/api-portal/pt-br/parcerias>
+2. **Cadastro no PagBank** — ele já tem CNPJ, que era o gate.
+   <https://developer.pagbank.com.br/v1/docs/smart-pos-processo-de-integracao>
+
+   Em ambos, pedir: documentação, e-mail do time de **integração** (não do
+   comercial), **máquina de homologação emprestada**, e se dá pra publicar em
+   modo **privado**.
+3. **A máquina certa é a PAX A930, pela Cielo.** É o pior caso das cinco
+   (Android 7.1) — passa nela, passa em todas; é o mesmo hardware da
+   Moderninha Smart, então cobre 2 de 5; e a Cielo tem o portão mais curto.
+   **Não pegar a Sicredi primeiro:** é a mais nova (Android 10), passar nela
+   não prova nada sobre as outras.
+4. **Perguntar da Coca-Cola** (item 10.7).
+
+### Conferir quando der, sem pressa
+
+- **Teste 3** — Dinheiro fecha direto, sem janela de maquininha. 30 segundos.
+- **A tarja de versão nova** — precisa de duas publicações seguidas pra ver.
+- **Batizar os aparelhos** — cada celular do bar precisa fechar/abrir uma vez
+  e receber um apelido na aba Histórico. Enquanto não fizer, aparece só o
+  código de 4 letras.
 
 **Não começar adaptador de marca nenhuma antes de ter a máquina na mão.**
 Integração escrita no escuro se joga fora — e o A930 ainda nem se sabe se
