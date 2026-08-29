@@ -3,6 +3,13 @@ import { createPortal } from 'react-dom'
 import { supabase, isConfigured } from './supabase.js'
 import { temMaquininha, ehCartao, cobrar, emCentavos, registrarSimulador } from './maquininha.js'
 import { ligarAvisoDeVersao, aplicarVersaoNova } from './atualizacao.js'
+import {
+  carimboDoAparelho,
+  comoMostrar,
+  idDoAparelho,
+  nomeDoAparelho,
+  batizarAparelho,
+} from './aparelho.js'
 
 const money = (n) => 'R$ ' + Number(n || 0).toFixed(2).replace('.', ',')
 const hora = (ts) =>
@@ -434,11 +441,14 @@ export default function App({ distribuidora = null, onSair = null }) {
 
   // grava uma linha no histórico (auditoria + permite desfazer).
   // "autor" fica null por ora; entra quando houver login dos garçons.
+  // O `_aparelho` entra dentro do payload que já existia — nenhuma coluna nova
+  // no banco. Nasceu do caso do "Ceara" (28/08): comanda apareceu fechada e
+  // ninguém sabia de qual celular tinha partido. Ver src/aparelho.js.
   async function registrar(tipo, descricao, payload = {}) {
     try {
       const { data } = await supabase
         .from('historico')
-        .insert({ tipo, descricao, payload })
+        .insert({ tipo, descricao, payload: { ...payload, _aparelho: carimboDoAparelho() } })
         .select()
         .single()
       return data
@@ -3707,7 +3717,14 @@ function LinhaHist({ h, onReverter }) {
         <span className={'hist-icone ' + (info.cls || '')}>{info.icone}</span>
         <div className="hist-corpo">
           <span className="hist-desc">{desc}</span>
-          <span className="hist-hora">🕐 {hora(h.created_at)}</span>
+          <span className="hist-hora">
+            🕐 {hora(h.created_at)}
+            {/* de qual celular partiu. Só aparece no que foi feito DEPOIS de
+                28/08/2026 — o que é antigo não tem como saber. */}
+            {comoMostrar(h.payload?._aparelho) && (
+              <span className="hist-ap"> · 📱 {comoMostrar(h.payload._aparelho)}</span>
+            )}
+          </span>
         </div>
         {h.revertido ? (
           <span className="hist-feito">desfeito</span>
@@ -3729,6 +3746,63 @@ function LinhaHist({ h, onReverter }) {
           ))}
         </ul>
       )}
+    </div>
+  )
+}
+
+// "Este aparelho: A3F2". Fica no alto do Histórico porque é lá que a pergunta
+// nasce — o dono está olhando uma movimentação e querendo saber de onde veio.
+// O apelido é o que torna a coisa útil: "Balcão" responde na hora, "A3F2" não.
+// Cada celular escreve o SEU apelido, no próprio aparelho — não é uma lista
+// central, é cada um se apresentando.
+function EsteAparelho() {
+  const [nome, setNome] = useState(() => nomeDoAparelho())
+  const [editando, setEditando] = useState(false)
+  const [rascunho, setRascunho] = useState('')
+  const id = idDoAparelho()
+
+  function salvar() {
+    batizarAparelho(rascunho)
+    setNome(nomeDoAparelho())
+    setEditando(false)
+  }
+
+  if (editando) {
+    return (
+      <div className="este-ap">
+        <input
+          className="este-ap-input"
+          value={rascunho}
+          onChange={(e) => setRascunho(e.target.value)}
+          placeholder="Ex.: Balcão, Garçom 1"
+          maxLength={24}
+          autoFocus
+          onKeyDown={(e) => e.key === 'Enter' && salvar()}
+        />
+        <button className="este-ap-btn" onClick={salvar}>
+          Salvar
+        </button>
+        <button className="este-ap-x" onClick={() => setEditando(false)}>
+          ✕
+        </button>
+      </div>
+    )
+  }
+
+  return (
+    <div className="este-ap">
+      <span className="este-ap-txt">
+        📱 Este aparelho: <strong>{nome ? `${nome} (${id})` : id}</strong>
+      </span>
+      <button
+        className="este-ap-btn"
+        onClick={() => {
+          setRascunho(nome)
+          setEditando(true)
+        }}
+      >
+        {nome ? 'Trocar nome' : 'Dar um nome'}
+      </button>
     </div>
   )
 }
@@ -3791,6 +3865,7 @@ function AbaHistorico({ historico, onReverter }) {
           Organizado por pasta. Toque numa pasta pra ver o que rolou. Fica 24h aqui
           (e ~30 dias guardado no servidor). Dá pra desfazer.
         </p>
+        <EsteAparelho />
         {historico.length === 0 ? (
           <p className="vazio">Nenhuma movimentação nas últimas 24 horas.</p>
         ) : (
