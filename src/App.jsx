@@ -521,6 +521,20 @@ export default function App({ distribuidora = null, onSair = null }) {
     q.then(() => {})
   }, [donoId])
 
+  // O Supabase NÃO lança erro quando falha: ele devolve `{ error }` dentro da
+  // resposta. Um `try/catch` sozinho, portanto, não pega nada — e era esse o
+  // furo aqui embaixo: se a gravação falhasse, o código seguia em frente, o
+  // histórico era marcado como "desfeito", o botão ↩ Desfazer sumia pra
+  // sempre e a tela dizia "Desfeito ✓" pra uma coisa que nunca aconteceu.
+  //
+  // Este `ok` transforma o erro devolvido em erro lançado, que aí sim o
+  // `catch` do `reverter` pega — e o histórico NÃO é marcado.
+  const ok = async (consulta) => {
+    const r = await consulta
+    if (r && r.error) throw new Error(r.error.message || 'falhou')
+    return r
+  }
+
   // desfazer uma movimentação: cada tipo tem sua ação inversa.
   async function reverter(h) {
     if (!h || h.revertido) return
@@ -529,17 +543,17 @@ export default function App({ distribuidora = null, onSair = null }) {
     try {
       if (h.tipo === 'excluir_cliente') {
         // recria a pessoa (mesmo id) e todo o consumo dela
-        await supabase.from('clientes').insert({
+        await ok(supabase.from('clientes').insert({
           id: p.cliente.id,
           nome: p.cliente.nome,
           aberto: true,
           pago_em: null,
           created_at: p.cliente.created_at,
-        })
-        if (p.consumos?.length) await supabase.from('consumos').insert(p.consumos)
+        }))
+        if (p.consumos?.length) await ok(supabase.from('consumos').insert(p.consumos))
         // os pagamentos parciais também caem por cascata: sem isto, desfazer
         // devolveria a comanda mas não o dinheiro que já tinha entrado
-        if (p.parciais?.length) await supabase.from('pagamentos_parciais').insert(p.parciais)
+        if (p.parciais?.length) await ok(supabase.from('pagamentos_parciais').insert(p.parciais))
       } else if (h.tipo === 'abrir_cliente') {
         // desfazer a abertura apaga a comanda — e a cascata do banco levaria
         // junto o que foi lançado e o que já foi pago nela
@@ -549,16 +563,16 @@ export default function App({ distribuidora = null, onSair = null }) {
           erro('Essa comanda já tem lançamento ou pagamento. Feche ou esvazie ela antes.')
           return
         }
-        await supabase.from('clientes').delete().eq('id', p.cliente.id)
+        await ok(supabase.from('clientes').delete().eq('id', p.cliente.id))
       } else if (h.tipo === 'fechar_cliente') {
-        await supabase
+        await ok(supabase
           .from('clientes')
           .update({ aberto: true, pago_em: null })
-          .eq('id', p.cliente.id)
+          .eq('id', p.cliente.id))
       } else if (h.tipo === 'lancar_consumo') {
-        await supabase.from('consumos').delete().eq('id', p.consumo.id)
+        await ok(supabase.from('consumos').delete().eq('id', p.consumo.id))
       } else if (h.tipo === 'remover_consumo') {
-        await supabase.from('consumos').insert(p.consumo)
+        await ok(supabase.from('consumos').insert(p.consumo))
       } else if (h.tipo === 'add_produto') {
         // apagar o produto leva junto, por cascata, a contagem de estoque dele;
         // e as vendas já feitas ficariam órfãs (elas guardam o nome, não o id)
@@ -570,38 +584,38 @@ export default function App({ distribuidora = null, onSair = null }) {
           erro('Esse produto já tem estoque contado ou venda. Use o ✕ no card dele.')
           return
         }
-        await supabase.from('cervejas').delete().in('id', ids)
+        await ok(supabase.from('cervejas').delete().in('id', ids))
       } else if (h.tipo === 'remover_produto') {
-        await supabase.from('cervejas').update({ ativo: true }).eq('id', p.produto.id)
+        await ok(supabase.from('cervejas').update({ ativo: true }).eq('id', p.produto.id))
       } else if (h.tipo === 'editar_produto') {
         // voltar o nome do produto é renomear: o histórico de vendas tem que ir
         // junto, senão as saídas antigas param de descontar do estoque
         const atual = cervejas.find((c) => c.id === p.id)
         const de = atual ? reprProduto(atual) : null
         const para = p.antes.tamanho ? `${p.antes.nome} ${p.antes.tamanho}` : p.antes.nome
-        await supabase
+        await ok(supabase
           .from('cervejas')
           .update({ nome: p.antes.nome, tamanho: p.antes.tamanho })
-          .eq('id', p.id)
+          .eq('id', p.id))
         if (de && de !== para) {
-          await supabase.from('consumos').update({ beer_nome: para }).eq('beer_nome', de)
-          await supabase.from('perdas').update({ beer_nome: para }).eq('beer_nome', de)
+          await ok(supabase.from('consumos').update({ beer_nome: para }).eq('beer_nome', de))
+          await ok(supabase.from('perdas').update({ beer_nome: para }).eq('beer_nome', de))
         }
       } else if (h.tipo === 'mudar_preco') {
-        await supabase.from('cervejas').update({ preco: p.antes }).eq('id', p.id)
+        await ok(supabase.from('cervejas').update({ preco: p.antes }).eq('id', p.id))
       } else if (h.tipo === 'venda_balcao') {
         // apaga a venda de balcão (a comanda fechada + os consumos, em cascata)
-        await supabase.from('clientes').delete().eq('id', p.cliente.id)
+        await ok(supabase.from('clientes').delete().eq('id', p.cliente.id))
       } else if (h.tipo === 'pagar_parte') {
-        await supabase.from('pagamentos_parciais').delete().eq('id', p.parcial.id)
+        await ok(supabase.from('pagamentos_parciais').delete().eq('id', p.parcial.id))
       } else if (h.tipo === 'renomear_cliente') {
-        await supabase.from('clientes').update({ nome: p.antes }).eq('id', p.id)
+        await ok(supabase.from('clientes').update({ nome: p.antes }).eq('id', p.id))
       } else if (h.tipo === 'perda') {
-        await supabase.from('perdas').delete().eq('id', p.id)
+        await ok(supabase.from('perdas').delete().eq('id', p.id))
       } else if (h.tipo === 'abrir_caixa') {
         // desfazer a abertura é só apagar o turno: nenhuma venda aponta pra ele
         // (o caixa é uma janela de horário, não um dono das vendas)
-        await supabase.from('caixas').delete().eq('id', p.caixa.id)
+        await ok(supabase.from('caixas').delete().eq('id', p.caixa.id))
       } else if (h.tipo === 'fechar_caixa') {
         // reabrir a noite. Se já tem outro caixa aberto, o banco recusa — e é
         // certo que recuse: dois caixas abertos ao mesmo tempo bagunçariam o dia.
@@ -616,7 +630,7 @@ export default function App({ distribuidora = null, onSair = null }) {
       } else {
         return
       }
-      await supabase.from('historico').update({ revertido: true }).eq('id', h.id)
+      await ok(supabase.from('historico').update({ revertido: true }).eq('id', h.id))
       await carregar()
       mostrarToast('Desfeito ✓', { tipo: 'ok' })
     } catch (_) {
