@@ -4379,20 +4379,30 @@ function calcularEstoque(cervejas, entradas, consumos, perdas) {
     if (controlado) nivel = saldo <= 0 ? 'zero' : min > 0 && saldo <= min ? 'baixo' : 'ok'
     return { c, controlado, entrou, saiu, perdidas, saldo, custoUnit, min, nivel, ents }
   })
-  // ORDEM DA LISTA: do que tem MENOS pro que tem mais. Quem está acabando
-  // aparece primeiro, sem precisar rolar a tela atrás — a lista já é a ordem
-  // de quem precisa de compra.
+  // ORDEM DA LISTA: primeiro a COR, depois a quantidade dentro da cor.
   //
-  // Saldo negativo (vendeu mais do que foi contado) sobe acima do zero, que é
-  // certo: além de ter acabado, tem conta errada pra acertar.
+  //   🔴 zerado / negativo   →  🟡 acabando  →  🟢 em estoque  →  nunca contado
   //
-  // NUNCA CONTADO fica no fim, sempre. O saldo dele é 0 por não ter contagem,
-  // não por ter acabado — se entrasse na fila junto com os zerados, os
-  // produtos que o dono ainda não contou inundariam o topo fingindo estar
-  // acabando, e o aviso de compra perderia a serventia.
+  // Dentro de cada cor, do que tem menos pro que tem mais. Então o amarelo vai
+  // inteiro (1, 2, 3...) e só quando ele acaba começa o verde, de novo do menor
+  // pro maior.
+  //
+  // POR QUE NÃO ORDENAR SÓ PELA QUANTIDADE (foi assim por um commit, e estava
+  // errado): "acabando" é relativo ao mínimo de cada produto. Uma Stella com 8
+  // pode estar acabando enquanto uma Fanta com 9 está tranquila — na ordem
+  // crua a Stella amarela caía embaixo da Fanta verde, e a lista deixava de
+  // dizer o que precisa de compra.
+  //
+  // Saldo negativo sobe acima do zero: além de ter acabado, tem conta errada
+  // pra acertar.
+  //
+  // NUNCA CONTADO fica no fim, sempre. O saldo dele também é 0, mas por não ter
+  // contagem — não por ter acabado. Junto com os zerados, os produtos que o
+  // dono ainda não contou inundariam o topo fingindo estar acabando.
+  const rank = { zero: 0, baixo: 1, ok: 2, novo: 3 }
   return arr.sort(
     (a, b) =>
-      Number(a.controlado ? 0 : 1) - Number(b.controlado ? 0 : 1) ||
+      rank[a.nivel] - rank[b.nivel] ||
       (a.controlado ? a.saldo - b.saldo : 0) ||
       a.c.nome.localeCompare(b.c.nome)
   )
