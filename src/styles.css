@@ -4529,3 +4529,93 @@ input[type='number'] {
   color: #ef7f70;
   background: rgba(224, 83, 61, 0.14);
 }
+
+
+/* ==========================================================================
+   TROCAR DE BAR  (um dono, mais de um bar)
+   ==========================================================================
+   Só aparece pra quem alcança mais de um. Fica ENTRE a marca e as abas de
+   propósito: acima ele disputaria com o nome do bar, abaixo ele seria
+   confundido com mais uma aba — e trocar de andar não é trocar de aba, é
+   trocar o app inteiro de lugar.
+
+   Menor e mais discreto que as abas, também de propósito: é um botão que o
+   garçom nunca usa e o dono usa umas cinco vezes por noite. */
+.seletor-bar {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 12px;
+  padding: 4px;
+  background: var(--card);
+  border-radius: 12px;
+}
+.seletor-bar-btn {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 8px 10px;
+  border: none;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--muted);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.3px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.seletor-bar-btn.on {
+  background: var(--card2);
+  color: var(--text);
+  box-shadow: inset 0 0 0 1px rgba(212, 162, 60, 0.35);
+}
+
+/* ==========================================================================
+   ESCOLHER O BAR NA PRIMEIRA ENTRADA
+   ==========================================================================
+   Aparece uma vez só: depois a escolha fica guardada no aparelho e ele entra
+   direto no último andar usado. */
+.escolha-bares {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 18px 0 14px;
+}
+.escolha-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 16px;
+  border: 1px solid var(--card2);
+  border-radius: 12px;
+  background: var(--card);
+  color: var(--text);
+  font-family: inherit;
+  text-align: left;
+}
+.escolha-bar-nome {
+  font-size: 16px;
+  font-weight: 800;
+}
+.escolha-bar-tag {
+  margin-left: auto;
+  padding: 3px 9px;
+  border-radius: 20px;
+  background: var(--card2);
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+/* Botão secundário da tela de login: mesma forma, sem o dourado. Usado
+   quando há DOIS botões e um deles não é o que a pessoa veio fazer. */
+.login-btn-fraco {
+  margin-top: 10px;
+  background: transparent;
+  border: 1px solid var(--card2);
+  color: var(--muted);
+}

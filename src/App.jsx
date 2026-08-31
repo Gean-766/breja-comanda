@@ -255,17 +255,64 @@ function diaAtualDoBar(caixas, virada = HORA_VIRADA, agora = Date.now()) {
   return diaDoBar(agora, virada)
 }
 
-// `distribuidora` e `onSair` vêm do Portao.jsx (quem já passou pelo login).
-// O RLS do banco já isola os dados por distribuidora; os filtros por
-// distribuidora_id aqui embaixo são só uma segunda tranca.
-export default function App({ distribuidora = null, onSair = null }) {
+// ===========================================================================
+//  O CARIMBO DE DONO VAI EXPLÍCITO EM TODA GRAVAÇÃO
+// ===========================================================================
+//  Antes NENHUM insert deste arquivo mandava `distribuidora_id`: quem
+//  preenchia era o gatilho do banco, que perguntava "qual é o bar deste
+//  login?". Com um login alcançando dois bares (o Bola 7 e o de cima), essa
+//  pergunta passou a ter DUAS respostas — e o banco escolheria uma ao acaso.
+//  A venda de cima entraria no relatório de baixo, sem erro na tela, e só
+//  apareceria no fim do mês, quando ninguém mais sabe qual foi qual.
+//
+//  Agora quem manda é o app, que sabe qual bar está na tela. O gatilho do
+//  banco virou rede de segurança: ele dá ERRO em vez de chutar quando o login
+//  alcança mais de um bar (ver supabase/dono-varios-bares.sql).
+//
+//  O `...linha` vem DEPOIS de propósito: se quem chamou já disse o dono — é o
+//  caso do desfazer, que recria a linha original — aquele valor é que manda.
+const comDono = (donoId, linha) =>
+  !donoId
+    ? linha
+    : Array.isArray(linha)
+      ? linha.map((l) => ({ distribuidora_id: donoId, ...l }))
+      : { distribuidora_id: donoId, ...linha }
+
+// `distribuidora`, `papel`, `lojas` e `onSair` vêm do Portao.jsx (quem já
+// passou pelo login). O RLS do banco já isola os dados por distribuidora; os
+// filtros por distribuidora_id aqui embaixo são só uma segunda tranca.
+export default function App({
+  distribuidora = null,
+  papel = 'dono',
+  lojas = null,
+  onTrocarBar = null,
+  onSair = null,
+}) {
   const donoId = distribuidora?.id || null
+  const carimbo = (linha) => comDono(donoId, linha)
   // abas extras que esse cliente contratou (vêm ligadas do painel CEO)
   const modulos = Array.isArray(distribuidora?.modulos) ? distribuidora.modulos : []
   const abasExtra = ORDEM_MODULOS.filter((k) => modulos.includes(k) && MODULOS[k])
   // com Estoque ligado, ele vira o gerenciador de produtos e a aba Produtos some
   // (evita cadastrar o mesmo produto em dois lugares e duplicar)
   const temEstoque = modulos.includes('estoque')
+  // -------------------------------------------------------------------------
+  // GARÇOM vê só Comandas e Histórico. DONO vê tudo que o bar contratou.
+  //
+  // Isto mexe SÓ na barra de abas. `modulos`, `abasExtra` e `temEstoque`
+  // continuam intactos de propósito: além das abas, eles decidem QUAIS DADOS
+  // CARREGAR (o `carregar()` aqui embaixo) e se a TRAVA DE ESTOQUE funciona.
+  // Filtrar eles pelo papel deixaria o garçom vendendo cerveja zerada sem o
+  // app reclamar — o contrário do que a separação quer fazer.
+  //
+  // E que fique claro o que isto é e o que não é: esconder aba deixa a tela do
+  // garçom limpa, não tranca o dado. A chave anon é pública e está dentro do
+  // JavaScript do site, e o faturamento é a soma dos `consumos`, que o garçom
+  // PRECISA ler pra rodar a comanda. Vender como "a tela do garçom é limpa",
+  // nunca como "o garçom não vê o caixa".
+  // -------------------------------------------------------------------------
+  const souFuncionario = papel === 'funcionario'
+  const abasVisiveis = souFuncionario ? [] : abasExtra
   // comanda por mesa (Mesa 3) ou por pessoa (Alex) — configurado no painel CEO
   const modoMesa = distribuidora?.modo_comanda === 'mesa'
   // hora em que a noite de ontem finalmente acaba (ver "O DIA DO BAR" lá em cima).
@@ -395,7 +442,7 @@ export default function App({ distribuidora = null, onSair = null }) {
     try {
       const { data } = await supabase
         .from('historico')
-        .insert({ tipo, descricao, payload: { ...payload, _aparelho: carimboDoAparelho() } })
+        .insert(carimbo({ tipo, descricao, payload: { ...payload, _aparelho: carimboDoAparelho() } }))
         .select()
         .single()
       return data
@@ -415,7 +462,9 @@ export default function App({ distribuidora = null, onSair = null }) {
       t = setTimeout(carregar, 400) // junta várias mudanças seguidas
     }
     const canal = supabase
-      .channel('comanda-realtime')
+      // O nome do canal leva o bar junto: se um dia dois bares aparecerem na
+      // mesma tela, dois canais de mesmo nome no mesmo cliente se atropelam.
+      .channel('comanda-realtime-' + (donoId || 'sem-dono'))
       .on('postgres_changes', { event: '*', schema: 'public', table: 'consumos' }, recarregar)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'clientes' }, recarregar)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'cervejas' }, recarregar)
@@ -456,7 +505,7 @@ export default function App({ distribuidora = null, onSair = null }) {
   useEffect(() => {
     if (!isConfigured || !temCaixas) return
     const canal = supabase
-      .channel('comanda-caixas')
+      .channel('comanda-caixas-' + (donoId || 'sem-dono'))
       .on('postgres_changes', { event: '*', schema: 'public', table: 'caixas' }, () => carregar())
       .subscribe()
     return () => supabase.removeChannel(canal)
@@ -553,17 +602,18 @@ export default function App({ distribuidora = null, onSair = null }) {
     try {
       if (h.tipo === 'excluir_cliente') {
         // recria a pessoa (mesmo id) e todo o consumo dela
-        await ok(supabase.from('clientes').insert({
+        await ok(supabase.from('clientes').insert(carimbo({
           id: p.cliente.id,
           nome: p.cliente.nome,
           aberto: true,
           pago_em: null,
           created_at: p.cliente.created_at,
-        }))
-        if (p.consumos?.length) await ok(supabase.from('consumos').insert(p.consumos))
+        })))
+        if (p.consumos?.length) await ok(supabase.from('consumos').insert(carimbo(p.consumos)))
         // os pagamentos parciais também caem por cascata: sem isto, desfazer
         // devolveria a comanda mas não o dinheiro que já tinha entrado
-        if (p.parciais?.length) await ok(supabase.from('pagamentos_parciais').insert(p.parciais))
+        if (p.parciais?.length)
+          await ok(supabase.from('pagamentos_parciais').insert(carimbo(p.parciais)))
       } else if (h.tipo === 'abrir_cliente') {
         // desfazer a abertura apaga a comanda — e a cascata do banco levaria
         // junto o que foi lançado e o que já foi pago nela
@@ -582,7 +632,7 @@ export default function App({ distribuidora = null, onSair = null }) {
       } else if (h.tipo === 'lancar_consumo') {
         await ok(supabase.from('consumos').delete().eq('id', p.consumo.id))
       } else if (h.tipo === 'remover_consumo') {
-        await ok(supabase.from('consumos').insert(p.consumo))
+        await ok(supabase.from('consumos').insert(carimbo(p.consumo)))
       } else if (h.tipo === 'add_produto') {
         // apagar o produto leva junto, por cascata, a contagem de estoque dele;
         // e as vendas já feitas ficariam órfãs (elas guardam o nome, não o id)
@@ -683,7 +733,7 @@ export default function App({ distribuidora = null, onSair = null }) {
     if (modoMesa && /^\d+$/.test(nome)) nome = 'Mesa ' + nome
     const { data, error } = await supabase
       .from('clientes')
-      .insert({ nome })
+      .insert(carimbo({ nome }))
       .select()
       .single()
     if (error || !data) {
@@ -699,12 +749,12 @@ export default function App({ distribuidora = null, onSair = null }) {
   async function adicionarConsumo(cliente_id, cerveja, quantidade) {
     const { data, error } = await supabase
       .from('consumos')
-      .insert({
+      .insert(carimbo({
         cliente_id,
         beer_nome: cerveja.tamanho ? `${cerveja.nome} ${cerveja.tamanho}` : cerveja.nome,
         preco_unit: cerveja.preco,
         quantidade,
-      })
+      }))
       .select()
       .single()
     if (error || !data) {
@@ -903,11 +953,15 @@ export default function App({ distribuidora = null, onSair = null }) {
     // (a venda nunca trava por causa de um SQL que ainda não rodou)
     let ins = await supabase
       .from('clientes')
-      .insert({ nome, aberto: false, pago_em, forma_pagamento: forma })
+      .insert(carimbo({ nome, aberto: false, pago_em, forma_pagamento: forma }))
       .select()
       .single()
     if (ins.error && /forma_pagamento/i.test(ins.error.message || '')) {
-      ins = await supabase.from('clientes').insert({ nome, aberto: false, pago_em }).select().single()
+      ins = await supabase
+        .from('clientes')
+        .insert(carimbo({ nome, aberto: false, pago_em }))
+        .select()
+        .single()
     }
     const cli = ins.data
     if (ins.error || !cli) {
@@ -920,7 +974,10 @@ export default function App({ distribuidora = null, onSair = null }) {
       preco_unit: it.cerveja.preco,
       quantidade: it.qtd,
     }))
-    const { data: cons, error: errIt } = await supabase.from('consumos').insert(linhas).select()
+    const { data: cons, error: errIt } = await supabase
+      .from('consumos')
+      .insert(carimbo(linhas))
+      .select()
     // se os itens não gravarem, sobra uma venda fechada e VAZIA: o dinheiro
     // entrou mas o relatório mostraria R$ 0,00 e o estoque não baixaria.
     // Melhor desfazer a venda inteira e mandar refazer.
@@ -952,9 +1009,13 @@ export default function App({ distribuidora = null, onSair = null }) {
     const linha = { cliente_id, valor: v, qtd, obs }
     // cada parte guarda a SUA forma: um amigo paga em dinheiro, outro no pix, e
     // o caixa continua batendo. Se a coluna ainda não existe, recebe sem ela.
-    let ins = await supabase.from('pagamentos_parciais').insert({ ...linha, forma }).select().single()
+    let ins = await supabase
+      .from('pagamentos_parciais')
+      .insert(carimbo({ ...linha, forma }))
+      .select()
+      .single()
     if (ins.error && /forma/i.test(ins.error.message || '')) {
-      ins = await supabase.from('pagamentos_parciais').insert(linha).select().single()
+      ins = await supabase.from('pagamentos_parciais').insert(carimbo(linha)).select().single()
     }
     const data = ins.data
     if (ins.error || !data) {
@@ -983,7 +1044,7 @@ export default function App({ distribuidora = null, onSair = null }) {
     const dia = diaAtualDoBar(caixas, virada)
     const ins = await supabase
       .from('caixas')
-      .insert({ dia, aberto_em: new Date().toISOString(), fundo_troco: Number(fundo) || 0 })
+      .insert(carimbo({ dia, aberto_em: new Date().toISOString(), fundo_troco: Number(fundo) || 0 }))
       .select()
       .single()
     if (ins.error || !ins.data) {
@@ -1106,6 +1167,9 @@ export default function App({ distribuidora = null, onSair = null }) {
             </button>
           )}
         </div>
+        {onTrocarBar && lojas && lojas.length > 1 && (
+          <SeletorBar lojas={lojas} atual={distribuidora} onTrocar={onTrocarBar} />
+        )}
         <nav className="abas">
           <button
             className={aba === 'comandas' ? 'aba on' : 'aba'}
@@ -1113,7 +1177,7 @@ export default function App({ distribuidora = null, onSair = null }) {
           >
             Comandas
           </button>
-          {!temEstoque && (
+          {!temEstoque && !souFuncionario && (
             <button
               className={aba === 'cervejas' ? 'aba on' : 'aba'}
               onClick={() => setAba('cervejas')}
@@ -1127,7 +1191,7 @@ export default function App({ distribuidora = null, onSair = null }) {
           >
             Histórico
           </button>
-          {abasExtra.map((k) => (
+          {abasVisiveis.map((k) => (
             <button
               key={k}
               className={aba === k ? 'aba on' : 'aba'}
@@ -1233,6 +1297,7 @@ export default function App({ distribuidora = null, onSair = null }) {
 
       {aba === 'cervejas' && !temEstoque && (
         <AbaCervejas
+          carimbo={carimbo}
           cervejas={cervejas}
           setCervejas={setCervejas}
           onErro={erro}
@@ -1264,6 +1329,7 @@ export default function App({ distribuidora = null, onSair = null }) {
           />
         ) : aba === 'estoque' ? (
           <AbaEstoque
+            carimbo={carimbo}
             cervejas={cervejas}
             setCervejas={setCervejas}
             entradas={entradas}
@@ -3253,7 +3319,39 @@ function VendaBalcao({ cervejas, estoque = new Map(), onVender, onVoltar }) {
   )
 }
 
-function AbaCervejas({ cervejas, setCervejas, onErro, onLog }) {
+// ===========================================================================
+//  TROCAR DE BAR — só aparece pra quem alcança mais de um
+// ===========================================================================
+//  Um botão por bar, em vez de lista suspensa: no meio do salão, no celular,
+//  com uma mão só, um toque é melhor que dois. Com dois andares cabe folgado.
+//
+//  Trocar aqui REMONTA o app inteiro (o `key` no Portao.jsx). Não é enfeite:
+//  o efeito que abre o tempo real tem lista de dependências vazia, então ele
+//  guarda o bar da primeira montagem e nunca mais olha. Sem remontar, o
+//  seletor trocaria a tela e continuaria ouvindo o bar antigo.
+function SeletorBar({ lojas, atual, onTrocar }) {
+  return (
+    <nav className="seletor-bar" aria-label="Trocar de bar">
+      {lojas.map((l) => {
+        const aqui = l.id === atual?.id
+        return (
+          <button
+            key={l.id}
+            className={aqui ? 'seletor-bar-btn on' : 'seletor-bar-btn'}
+            onClick={() => !aqui && onTrocar(l.id)}
+            aria-current={aqui ? 'true' : undefined}
+          >
+            {l.nome}
+          </button>
+        )
+      })}
+    </nav>
+  )
+}
+
+// `carimbo` gruda o bar certo em cada gravação. O padrão devolve a linha sem
+// mexer: assim o componente continua funcionando se alguém montar ele solto.
+function AbaCervejas({ cervejas, setCervejas, onErro, onLog, carimbo = (x) => x }) {
   const [nome, setNome] = useState('')
   const [tamanho, setTamanho] = useState('') // livre: "600ml", "Lata", "Litrão"…
   const [precoNovo, setPrecoNovo] = useState('')
@@ -3339,10 +3437,10 @@ function AbaCervejas({ cervejas, setCervejas, onErro, onLog }) {
     const linha = { nome: n, tamanho: tam, preco, ordem, cor: corSel || null }
 
     // tenta com a coluna "cor"; se ela ainda não existe no banco, salva sem ela
-    let res = await supabase.from('cervejas').insert(linha).select()
+    let res = await supabase.from('cervejas').insert(carimbo(linha)).select()
     if (res.error && /cor/i.test(res.error.message || '')) {
       const { cor, ...semCor } = linha
-      res = await supabase.from('cervejas').insert(semCor).select()
+      res = await supabase.from('cervejas').insert(carimbo(semCor)).select()
     }
     if (res.error || !res.data) {
       return onErro('⚠️ Não consegui salvar o produto. Tente de novo.')
@@ -4272,7 +4370,7 @@ function avisoEstoque(est, qtd = 1) {
 const semEstoque = (est) => !!est && est.controlado && est.saldo <= 0
 
 
-function AbaEstoque({ cervejas, setCervejas, entradas, setEntradas, consumos, perdas = [], setPerdas, onErro, onLog }) {
+function AbaEstoque({ cervejas, setCervejas, entradas, setEntradas, consumos, perdas = [], setPerdas, onErro, onLog, carimbo = (x) => x }) {
   const [abertoId, setAbertoId] = useState(null)
   const [vista, setVista] = useState('estoque') // 'estoque' (visão geral) | 'cadastro' | 'perdas'
   const [perdendo, setPerdendo] = useState(null) // produto sendo lançado como perda (abre modal)
@@ -4501,14 +4599,18 @@ function AbaEstoque({ cervejas, setCervejas, entradas, setEntradas, consumos, pe
     // A ordem importa: "subcategoria" contém "categoria", então testa ela antes.
     let res = await supabase
       .from('cervejas')
-      .insert({ ...base, categoria: novoPasta, subcategoria: novoSub })
+      .insert(carimbo({ ...base, categoria: novoPasta, subcategoria: novoSub }))
       .select()
       .single()
     if (res.error && /subcategoria/i.test(res.error.message || '')) {
-      res = await supabase.from('cervejas').insert({ ...base, categoria: novoPasta }).select().single()
+      res = await supabase
+        .from('cervejas')
+        .insert(carimbo({ ...base, categoria: novoPasta }))
+        .select()
+        .single()
     }
     if (res.error && /categoria/i.test(res.error.message || '')) {
-      res = await supabase.from('cervejas').insert(base).select().single()
+      res = await supabase.from('cervejas').insert(carimbo(base)).select().single()
     }
     const prod = res.data
     if (res.error || !prod) return onErro('⚠️ Não consegui salvar o produto. Tente de novo.')
@@ -4536,7 +4638,11 @@ function AbaEstoque({ cervejas, setCervejas, entradas, setEntradas, consumos, pe
       const linha = { cerveja_id: prod.id, unidades }
       if (caixas) linha.caixas = caixas
       if (custo) linha.custo_caixa = custo
-      const { data: ent } = await supabase.from('estoque_entradas').insert(linha).select().single()
+      const { data: ent } = await supabase
+        .from('estoque_entradas')
+        .insert(carimbo(linha))
+        .select()
+        .single()
       if (ent) setEntradas((es) => [ent, ...es])
     }
 
@@ -4630,7 +4736,7 @@ function AbaEstoque({ cervejas, setCervejas, entradas, setEntradas, consumos, pe
     if (c.custo_caixa) linha.custo_caixa = Number(c.custo_caixa)
     const { data, error } = await supabase
       .from('estoque_entradas')
-      .insert(linha)
+      .insert(carimbo(linha))
       .select()
       .single()
     if (error || !data) return onErro('⚠️ Não registrou a entrada. Tente de novo.')
@@ -4674,7 +4780,7 @@ function AbaEstoque({ cervejas, setCervejas, entradas, setEntradas, consumos, pe
       quantidade: qtd,
       motivo: perdaMotivo || null,
     }
-    const { data, error } = await supabase.from('perdas').insert(linha).select().single()
+    const { data, error } = await supabase.from('perdas').insert(carimbo(linha)).select().single()
     if (error || !data) return onErro('⚠️ Não registrei a perda. Rodou o perdas.sql no Supabase?')
     setPerdas((ps) => [data, ...ps])
     // registra também no Histórico (pasta Perdas) — dá pra desfazer por lá
