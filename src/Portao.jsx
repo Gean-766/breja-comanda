@@ -114,14 +114,30 @@ export default function Portao() {
     )
   }
 
-  // Com mais de um bar e nenhuma escolha ainda guardada, pergunta uma vez.
-  // Depois disso ele entra direto no último e troca pelo seletor do topo.
   const escolhido = lojas.find((l) => l.id === escolhidoId)
-  if (lojas.length > 1 && !escolhido) {
+
+  // O BAR DE CASA DESTE LOGIN.
+  //
+  // Todo login criado pelo painel nasce dono de um bar, e isso fica gravado em
+  // `distribuidoras.auth_user_id`. Esse é o bar que o app SEMPRE abriu pra ele,
+  // desde antes de existir segundo andar.
+  //
+  // Por isso ele é o padrão. Sem isto, o dia em que o celular do dono pegasse a
+  // versão nova, ele abriria o app e daria de cara com uma tela "Qual bar?" que
+  // nunca existiu — no meio do movimento, sem ninguém ter avisado. O seletor lá
+  // em cima já dá conta de trocar de andar; não precisa de pedágio na entrada.
+  //
+  // (É a mesma regra que o banco usa quando um app desatualizado grava sem
+  //  dizer o bar. Ver supabase/dois-bares-conserta-app-antigo.sql.)
+  const daCasa = lojas.find((l) => l.auth_user_id && l.auth_user_id === sessao.user.id)
+
+  // Só pergunta a quem NÃO tem bar de casa: é o login avulso do dono, que
+  // nasceu alcançando dois andares e não tem um "de sempre" pra abrir.
+  if (!escolhido && !daCasa && lojas.length > 1) {
     return <EscolhaBar lojas={lojas} onEscolher={trocarBar} onSair={sair} />
   }
 
-  const loja = escolhido || lojas[0]
+  const loja = escolhido || daCasa || lojas[0]
 
   const hoje = new Date().toISOString().slice(0, 10)
   const vencido = loja.vence_em && String(loja.vence_em).slice(0, 10) < hoje
