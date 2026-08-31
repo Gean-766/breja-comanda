@@ -46,6 +46,10 @@ export default function Portao() {
   const [lojas, setLojas] = useState(undefined) // undefined = ainda carregando
   const [papeis, setPapeis] = useState({}) // { [distribuidora_id]: 'dono' | 'funcionario' }
   const [escolhidoId, setEscolhidoId] = useState(barGuardado)
+  // Pedido explícito de "quero escolher". Sem ele, o botão "Ver outro bar" da
+  // tela de acesso expirado não teria efeito nenhum: ele limpa a escolha, e o
+  // app cai de volta no bar de casa — que é exatamente o que está expirado.
+  const [querEscolher, setQuerEscolher] = useState(false)
 
   // acompanha a sessão (fica salva no celular; não pede senha toda vez)
   useEffect(() => {
@@ -91,6 +95,7 @@ export default function Portao() {
   const trocarBar = useCallback((id) => {
     guardarBar(id)
     setEscolhidoId(id)
+    setQuerEscolher(false)
   }, [])
 
   async function sair() {
@@ -133,11 +138,11 @@ export default function Portao() {
 
   // Só pergunta a quem NÃO tem bar de casa: é o login avulso do dono, que
   // nasceu alcançando dois andares e não tem um "de sempre" pra abrir.
-  if (!escolhido && !daCasa && lojas.length > 1) {
+  if (lojas.length > 1 && (querEscolher || (!escolhido && !daCasa))) {
     return <EscolhaBar lojas={lojas} onEscolher={trocarBar} onSair={sair} />
   }
 
-  const loja = escolhido || daCasa || lojas[0]
+  const loja = (querEscolher ? null : escolhido) || daCasa || lojas[0]
 
   const hoje = new Date().toISOString().slice(0, 10)
   const vencido = loja.vence_em && String(loja.vence_em).slice(0, 10) < hoje
@@ -156,7 +161,7 @@ export default function Portao() {
         rodape={loja.nome}
         // Um bar bloqueado não pode trancar o outro: com mais de um, dá pra
         // voltar pra escolha e trabalhar no que está em dia.
-        onTrocar={lojas.length > 1 ? () => trocarBar(null) : null}
+        onTrocar={lojas.length > 1 ? () => setQuerEscolher(true) : null}
         onSair={sair}
       />
     )
