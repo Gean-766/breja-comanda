@@ -72,13 +72,6 @@ select (jsonb_populate_record(
 
 -- ####  FIM  ####
 --
--- CONFERE (os dois numeros tem que ficar iguais depois de rodar):
---   select d.nome, count(c.id) as produtos
---     from distribuidoras d
---     left join cervejas c on c.distribuidora_id = d.id and c.ativo = true
---    where d.login in ('bola7', 'bola7cima')
---    group by d.nome
---
--- CONFERE QUE O ESTOQUE DE CIMA NASCEU ZERADO (tem que vir zero):
---   select count(*) from estoque_entradas
---    where distribuidora_id = (select id from distribuidoras where login = 'bola7cima')
+-- DEU CERTO? Rode o dois-bares-conferir.sql: ele conta os produtos dos dois
+-- bares (tem que dar o mesmo numero) e confere que o estoque de cima nasceu
+-- zerado, esperando a primeira contagem.

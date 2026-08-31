@@ -226,7 +226,7 @@ grant execute on function public.fn_minha_distribuidora() to authenticated;
 --    do login. Com dois bares, ela carimbaria com um deles ao acaso e a
 --    venda de cima entraria no relatorio de baixo sem erro nenhum na tela.
 --
---    Agora: manda parar. Erro na tela do garcom e chato; venda no bar errado
+--    Agora: manda parar. Erro na tela do garcom e chato. Venda no bar errado
 --    e dinheiro perdido que ninguem acha depois. Entre os dois, o erro.
 --
 --    Quem alcanca um bar so continua igualzinho: nem percebe que mudou.
@@ -340,17 +340,11 @@ create policy "vejo_meus_acessos" on public.acessos for select to authenticated
 
 -- ####  FIM  ####
 --
--- CONFERE SE FICOU CERTO (tem que devolver uma linha por login que existe):
---   select d.nome, d.login, a.papel
---     from acessos a join distribuidoras d on d.id = a.distribuidora_id
---    order by d.nome
+-- DEU CERTO? Abra o painel CEO, clique em "Quem entra" na linha da loja.
+-- Se a lista mostrar o login dela como Dono, acabou.
 --
--- DAR O SEGUNDO BAR PRO DONO (depois que o bar de cima existir):
---   insert into acessos (auth_user_id, distribuidora_id, papel)
---   select (select auth_user_id from distribuidoras where login = 'adenilton'),
---          (select id from distribuidoras where login = 'bola7cima'),
---          'dono'
+-- Daqui pra frente, dar acesso a mais um bar, trocar entre Dono e Funcionario
+-- e criar o login avulso do dono e tudo pelo painel, naquele mesmo botao.
+-- Nao precisa voltar aqui.
 --
--- REBAIXAR UM LOGIN PRA FUNCIONARIO (ele passa a ver so Comandas e Historico):
---   update acessos set papel = 'funcionario'
---    where auth_user_id = (select auth_user_id from distribuidoras where login = 'bola7')
+-- Pra conferir por fora, o arquivo dois-bares-conferir.sql faz as contas.
