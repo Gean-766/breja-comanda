@@ -55,9 +55,23 @@ create table if not exists public.acessos (
   auth_user_id     uuid not null,
   distribuidora_id uuid not null references public.distribuidoras(id) on delete cascade,
   papel            text not null default 'funcionario',
+  login            text,
   created_at       timestamptz not null default now(),
   unique (auth_user_id, distribuidora_id)
 );
+
+-- Pra quem rodou uma versao anterior deste arquivo, antes da coluna existir.
+alter table public.acessos add column if not exists login text;
+
+-- POR QUE O LOGIN E GUARDADO AQUI, se ele ja esta na distribuidoras
+--
+-- Porque nem todo login tem uma distribuidora. O painel cria UM login por bar,
+-- gravando em distribuidoras.auth_user_id, que e unique. Com dois bares cabem
+-- dois logins, e o dono nao teria um so dele: ele acabaria dividindo o login
+-- com o garcom, que e exatamente o que a separacao veio evitar.
+--
+-- O login extra do dono nasce direto aqui, sem dono de bar nenhum. Como nao
+-- existe linha em distribuidoras pra ele, o nome dele precisa morar aqui.
 
 do $$
 begin
@@ -80,11 +94,20 @@ create index if not exists idx_acessos_dist on public.acessos(distribuidora_id);
 --    seguinte sem ninguem ter pedido. Rebaixar e escolha do Gean, loja por
 --    loja, com o comando que esta no fim deste arquivo.
 -- ---------------------------------------------------------------------------
-insert into public.acessos (auth_user_id, distribuidora_id, papel)
-select d.auth_user_id, d.id, 'dono'
+insert into public.acessos (auth_user_id, distribuidora_id, papel, login)
+select d.auth_user_id, d.id, 'dono', d.login
   from public.distribuidoras d
  where d.auth_user_id is not null
 on conflict (auth_user_id, distribuidora_id) do nothing;
+
+-- Re-rodou depois de ja ter criado as linhas: completa o login que faltava
+update public.acessos a
+   set login = d.login
+  from public.distribuidoras d
+ where d.id = a.distribuidora_id
+   and d.auth_user_id = a.auth_user_id
+   and a.login is null
+   and d.login is not null;
 
 
 -- ---------------------------------------------------------------------------
@@ -112,9 +135,10 @@ begin
   end if;
 
   if new.auth_user_id is not null then
-    insert into public.acessos (auth_user_id, distribuidora_id, papel)
-    values (new.auth_user_id, new.id, 'dono')
-    on conflict (auth_user_id, distribuidora_id) do nothing;
+    insert into public.acessos (auth_user_id, distribuidora_id, papel, login)
+    values (new.auth_user_id, new.id, 'dono', new.login)
+    on conflict (auth_user_id, distribuidora_id)
+      do update set login = coalesce(excluded.login, public.acessos.login);
   end if;
 
   return new;
@@ -123,7 +147,7 @@ $ESP$;
 
 drop trigger if exists trg_espelha_acesso on public.distribuidoras;
 create trigger trg_espelha_acesso
-  after insert or update of auth_user_id on public.distribuidoras
+  after insert or update of auth_user_id, login on public.distribuidoras
   for each row execute function public.fn_espelha_acesso();
 
 
