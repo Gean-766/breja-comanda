@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { supabase, isConfigured } from './supabase.js'
 import Login from './Login.jsx'
 import App from './App.jsx'
@@ -7,10 +7,45 @@ import App from './App.jsx'
 //   sem sessão            -> tela de login
 //   sessão sem cadastro   -> aviso (acesso criado torto no painel)
 //   bloqueada ou vencida  -> tela de acesso expirado
-//   tudo certo            -> o app da distribuidora
+//   tudo certo            -> o app do bar
+//
+// ---------------------------------------------------------------------------
+// UM LOGIN PODE ALCANÇAR MAIS DE UM BAR
+// ---------------------------------------------------------------------------
+// Nasceu do Bola 7: um prédio de dois andares, dois bares de verdade (estoque,
+// caixa e comanda separados) e um dono só, que precisa ver os dois sem sair e
+// entrar de novo.
+//
+// Quem alcança UM bar não vê diferença nenhuma — nem seletor, nem tela a mais.
+// É o caso de todo cliente de hoje, e tem que continuar sendo.
+//
+// Quem alcança DOIS escolhe uma vez, e daí em diante troca pelo seletor lá no
+// topo do app. A escolha fica guardada no aparelho: o celular do balcão abre
+// sempre no mesmo andar.
+const CHAVE_BAR = 'comanda.bar.escolhido'
+
+function barGuardado() {
+  try {
+    return localStorage.getItem(CHAVE_BAR) || null
+  } catch {
+    return null
+  }
+}
+
+function guardarBar(id) {
+  try {
+    if (id) localStorage.setItem(CHAVE_BAR, id)
+    else localStorage.removeItem(CHAVE_BAR)
+  } catch {
+    /* sem localStorage o seletor continua funcionando, só não lembra depois */
+  }
+}
+
 export default function Portao() {
   const [sessao, setSessao] = useState(undefined) // undefined = ainda checando
-  const [distribuidora, setDistribuidora] = useState(undefined)
+  const [lojas, setLojas] = useState(undefined) // undefined = ainda carregando
+  const [papeis, setPapeis] = useState({}) // { [distribuidora_id]: 'dono' | 'funcionario' }
+  const [escolhidoId, setEscolhidoId] = useState(barGuardado)
 
   // acompanha a sessão (fica salva no celular; não pede senha toda vez)
   useEffect(() => {
@@ -18,51 +53,79 @@ export default function Portao() {
     supabase.auth.getSession().then(({ data }) => setSessao(data?.session || null))
     const { data: sub } = supabase.auth.onAuthStateChange((_evt, s) => {
       setSessao(s || null)
-      if (!s) setDistribuidora(undefined)
+      if (!s) setLojas(undefined)
     })
     return () => sub?.subscription?.unsubscribe()
   }, [])
 
-  // com sessão, busca a distribuidora dona desse login
+  // com sessão, busca TODOS os bares que esse login alcança. O RLS já devolve
+  // só os que são dele, então aqui não vai filtro nenhum.
   useEffect(() => {
     if (!sessao) return
     let vivo = true
-    supabase
-      .from('distribuidoras')
-      .select('*')
-      .eq('auth_user_id', sessao.user.id)
-      .limit(1)
-      .then(({ data }) => {
-        if (vivo) setDistribuidora((data && data[0]) || null)
-      })
+
+    async function carregar() {
+      const r = await supabase.from('distribuidoras').select('*').order('nome')
+      if (!vivo) return
+      setLojas(r.data || [])
+
+      // Quem é dono e quem é funcionário em cada bar. Fica num select à parte
+      // de propósito: enquanto o `dono-varios-bares.sql` não tiver rodado, a
+      // tabela não existe, o erro morre aqui e todo mundo segue como dono —
+      // que é exatamente o comportamento de hoje.
+      const ra = await supabase.from('acessos').select('distribuidora_id, papel')
+      if (!vivo) return
+      if (!ra.error && ra.data) {
+        const m = {}
+        for (const a of ra.data) m[a.distribuidora_id] = a.papel
+        setPapeis(m)
+      }
+    }
+
+    carregar()
     return () => {
       vivo = false
     }
   }, [sessao])
 
+  const trocarBar = useCallback((id) => {
+    guardarBar(id)
+    setEscolhidoId(id)
+  }, [])
+
   async function sair() {
+    guardarBar(null)
     await supabase.auth.signOut()
   }
 
   if (!isConfigured) return <App />
   if (sessao === undefined) return <div className="centro">Carregando…</div>
   if (!sessao) return <Login />
-  if (distribuidora === undefined) return <div className="centro">Entrando…</div>
+  if (lojas === undefined) return <div className="centro">Entrando…</div>
 
-  if (!distribuidora) {
+  if (!lojas.length) {
     return (
       <Bloqueio
         emoji="⚠️"
         titulo="Acesso não configurado"
-        texto="Esse login existe, mas não está ligado a nenhuma distribuidora. Fale com quem te vendeu o sistema."
+        texto="Esse login existe, mas não está ligado a nenhum bar. Fale com quem te vendeu o sistema."
         onSair={sair}
       />
     )
   }
 
+  // Com mais de um bar e nenhuma escolha ainda guardada, pergunta uma vez.
+  // Depois disso ele entra direto no último e troca pelo seletor do topo.
+  const escolhido = lojas.find((l) => l.id === escolhidoId)
+  if (lojas.length > 1 && !escolhido) {
+    return <EscolhaBar lojas={lojas} onEscolher={trocarBar} onSair={sair} />
+  }
+
+  const loja = escolhido || lojas[0]
+
   const hoje = new Date().toISOString().slice(0, 10)
-  const vencido = distribuidora.vence_em && String(distribuidora.vence_em).slice(0, 10) < hoje
-  const inativa = distribuidora.status !== 'ativa' && distribuidora.status !== 'teste'
+  const vencido = loja.vence_em && String(loja.vence_em).slice(0, 10) < hoje
+  const inativa = loja.status !== 'ativa' && loja.status !== 'teste'
 
   if (vencido || inativa) {
     return (
@@ -74,16 +137,58 @@ export default function Portao() {
             ? 'A validade do seu acesso terminou. Assim que a mensalidade for regularizada, ele volta na hora.'
             : 'Seu acesso está bloqueado no momento. Fale com quem te vendeu o sistema.'
         }
-        rodape={distribuidora.nome}
+        rodape={loja.nome}
+        // Um bar bloqueado não pode trancar o outro: com mais de um, dá pra
+        // voltar pra escolha e trabalhar no que está em dia.
+        onTrocar={lojas.length > 1 ? () => trocarBar(null) : null}
         onSair={sair}
       />
     )
   }
 
-  return <App distribuidora={distribuidora} onSair={sair} />
+  // `key` força o app a remontar inteiro quando troca de bar. Sem isso, o
+  // tempo real continuaria recarregando o bar ANTIGO: o efeito que abre o
+  // canal tem lista de dependências vazia, então ele guarda o donoId da
+  // primeira montagem e nunca mais olha de novo.
+  return (
+    <App
+      key={loja.id}
+      distribuidora={loja}
+      papel={papeis[loja.id] || 'dono'}
+      lojas={lojas}
+      onTrocarBar={lojas.length > 1 ? trocarBar : null}
+      onSair={sair}
+    />
+  )
 }
 
-function Bloqueio({ emoji, titulo, texto, rodape, onSair }) {
+// Só aparece pra quem alcança mais de um bar, e só na primeira vez.
+function EscolhaBar({ lojas, onEscolher, onSair }) {
+  return (
+    <div className="login-tela">
+      <div className="login-caixa">
+        <div className="login-logo">🍻</div>
+        <h1 className="login-titulo">Qual bar?</h1>
+        <p className="login-sub">Você pode trocar depois, lá no topo da tela.</p>
+
+        <div className="escolha-bares">
+          {lojas.map((l) => (
+            <button key={l.id} className="escolha-bar" onClick={() => onEscolher(l.id)}>
+              <span className="escolha-bar-nome">{l.nome}</span>
+              {l.status !== 'ativa' && <span className="escolha-bar-tag">{l.status}</span>}
+            </button>
+          ))}
+        </div>
+
+        <button className="login-btn login-btn-fraco" onClick={onSair}>
+          Sair
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function Bloqueio({ emoji, titulo, texto, rodape, onTrocar, onSair }) {
   return (
     <div className="login-tela">
       <div className="login-caixa">
@@ -91,7 +196,12 @@ function Bloqueio({ emoji, titulo, texto, rodape, onSair }) {
         <h1 className="login-titulo">{titulo}</h1>
         <p className="login-sub">{texto}</p>
         {rodape && <p className="login-rodape">{rodape}</p>}
-        <button className="login-btn" onClick={onSair}>
+        {onTrocar && (
+          <button className="login-btn" onClick={onTrocar}>
+            Ver outro bar
+          </button>
+        )}
+        <button className={onTrocar ? 'login-btn login-btn-fraco' : 'login-btn'} onClick={onSair}>
           Sair
         </button>
       </div>
