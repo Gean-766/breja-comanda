@@ -238,29 +238,58 @@ security definer
 set search_path = public
 as $SET$
 declare
-  ids uuid[];
+  ids    uuid[];
+  nativo uuid;
 begin
-  -- o aplicativo ja disse de qual bar e. O with check da policy confere se
-  -- ele podia mesmo gravar la, entao aqui e so respeitar.
+  -- O aplicativo ja disse de qual bar e. O with check da policy confere se ele
+  -- podia mesmo gravar la, entao aqui e so respeitar.
   if new.distribuidora_id is not null then
     return new;
   end if;
 
   select array_agg(d) into ids from public.fn_minhas_distribuidoras() d;
 
-  -- sem acesso a bar nenhum: deixa passar em branco e o RLS recusa logo
+  -- Sem acesso a bar nenhum: deixa passar em branco e o RLS recusa logo
   -- abaixo, com a mensagem dele. Erro de acesso e assunto do RLS.
   if ids is null or array_length(ids, 1) = 0 then
     return new;
   end if;
 
-  if array_length(ids, 1) > 1 then
-    raise exception 'Este login alcanca mais de um bar e o aplicativo nao disse em qual gravar. Atualize o aplicativo antes de continuar vendendo.'
-      using errcode = 'check_violation';
+  -- Um bar so: nao ha duvida nenhuma.
+  if array_length(ids, 1) = 1 then
+    new.distribuidora_id := ids[1];
+    return new;
   end if;
 
-  new.distribuidora_id := ids[1];
-  return new;
+  -- MAIS DE UM BAR E O APLICATIVO NAO DISSE QUAL.
+  --
+  -- Isto e um celular rodando a versao antiga guardada dentro dele. Aconteceu
+  -- de verdade no Bola 7 em 31/08/2026: o dono foi abrir o caixa e o app disse
+  -- "sem conexao", com a internet boa.
+  --
+  -- Nao da pra corrigir o aplicativo que ja esta instalado, entao a saida vem
+  -- daqui. E nao e chute: todo login nasce dono de UM bar
+  -- (distribuidoras.auth_user_id), e e exatamente de la que o aplicativo
+  -- antigo tira o bar que ele mostra. Ele nao tem seletor e nao sabe trocar de
+  -- andar, entao existe uma resposta certa e ela e conhecida.
+  select d.id
+    into nativo
+    from public.distribuidoras d
+   where d.auth_user_id = auth.uid()
+     and d.id = any (ids)
+   limit 1;
+
+  if nativo is not null then
+    new.distribuidora_id := nativo;
+    return new;
+  end if;
+
+  -- Sobrou o caso sem resposta certa: login avulso, sem bar nativo, alcancando
+  -- dois bares. Esse nem entra no aplicativo antigo, entao ninguem chega aqui
+  -- por acidente. Continua recusando, porque inventar um bar seria jogar
+  -- dinheiro no relatorio errado, calado.
+  raise exception 'Este login alcanca mais de um bar e o aplicativo nao disse em qual gravar. Feche o aplicativo e abra de novo duas vezes, pra ele pegar a versao nova.'
+    using errcode = 'check_violation';
 end;
 $SET$;
 
