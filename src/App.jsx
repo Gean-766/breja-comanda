@@ -271,6 +271,37 @@ function diaAtualDoBar(caixas, virada = HORA_VIRADA, agora = Date.now()) {
 //
 //  O `...linha` vem DEPOIS de propósito: se quem chamou já disse o dono — é o
 //  caso do desfazer, que recria a linha original — aquele valor é que manda.
+// ===========================================================================
+//  O ERRO DO BANCO TEM QUE CHEGAR NA TELA
+// ===========================================================================
+//  "Sem conexão?" era o texto de todo erro que não fosse um caso conhecido —
+//  e o motivo de verdade, que o banco tinha acabado de dizer, era jogado fora.
+//  Num bar, às onze da noite, isso é a diferença entre um conserto de trinta
+//  segundos e a noite inteira no escuro.
+//
+//  Aqui os motivos que a gente conhece viram português, e o que não for
+//  conhecido aparece cru mesmo — feio, mas verdadeiro.
+function motivoDoErro(err) {
+  const msg = String(err?.message || err || '')
+  if (!msg) return 'Sem conexão?'
+
+  // A trava dos dois bares: o app não disse em qual bar gravar.
+  if (/alcanca mais de um bar|alcança mais de um bar/i.test(msg)) {
+    return 'Este login alcança dois bares e o aplicativo não disse em qual gravar. Atualize a página (puxe a tela pra baixo) e tente de novo.'
+  }
+  // RLS recusou: o login não tem permissão naquele bar.
+  if (/row-level security|violates row-level/i.test(msg)) {
+    return 'O banco recusou: este login não tem permissão neste bar. Confira em Quem entra, no painel.'
+  }
+  if (/JWT|token|expired/i.test(msg)) {
+    return 'Sua entrada expirou. Saia e entre de novo.'
+  }
+  if (/Failed to fetch|NetworkError|network/i.test(msg)) {
+    return 'Sem conexão com a internet.'
+  }
+  return msg
+}
+
 const comDono = (donoId, linha) =>
   !donoId
     ? linha
@@ -737,7 +768,7 @@ export default function App({
       .select()
       .single()
     if (error || !data) {
-      erro('⚠️ Não consegui abrir a comanda. Sem conexão?')
+      erro('⚠️ Não abriu a comanda: ' + motivoDoErro(error))
       return
     }
     setNovoNome('')
@@ -758,7 +789,7 @@ export default function App({
       .select()
       .single()
     if (error || !data) {
-      erro('⚠️ Não salvou o lançamento. Tente de novo.')
+      erro('⚠️ Não salvou o lançamento: ' + motivoDoErro(error))
       return
     }
     setConsumos((cs) => [data, ...cs])
@@ -965,7 +996,7 @@ export default function App({
     }
     const cli = ins.data
     if (ins.error || !cli) {
-      erro('⚠️ Não consegui registrar a venda. Sem conexão?')
+      erro('⚠️ Não registrou a venda: ' + motivoDoErro(ins.error))
       return
     }
     const linhas = itens.map((it) => ({
@@ -1059,7 +1090,7 @@ export default function App({
       erro(
         /caixas/i.test(msg) && /exist|schema|relation/i.test(msg)
           ? '⚠️ Falta rodar o SQL "caixa-turno" no Supabase.'
-          : '⚠️ Não consegui abrir o caixa. Sem conexão?'
+          : '⚠️ Não abriu o caixa: ' + motivoDoErro(ins.error)
       )
       return false
     }
