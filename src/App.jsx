@@ -2148,32 +2148,14 @@ function Detalhe({ cliente, loja = 'Comanda', cervejas, consumos, resumo, parcia
   const [pessoas, setPessoas] = useState(0) // dividir a conta entre N pessoas (modo valor)
   const [dividirN, setDividirN] = useState(1) // calculadora "dividir" na tela da mesa
   const [impressoEm, setImpressoEm] = useState(null) // hora carimbada no cupom
-  const [contaFixo, setContaFixo] = useState({}) // {produto_id: toques} da faixa fixa
 
   const reprDe = (c) => (c.tamanho ? `${c.nome} ${c.tamanho}` : c.nome)
 
-  // Produtos fixos no topo (📌 na aba Produtos) — a ficha de sinuca do Snooker
-  // Bar. Sai toda hora, então não mora numa pasta: cada toque soma 1 e o
-  // "Lançar" grava tudo de uma vez.
+  // Produtos fixos (📌 na aba Produtos) — a ficha de sinuca do Snooker Bar.
+  // Sai toda hora, então não mora numa pasta: fica ao lado do "+" da
+  // quantidade. Ajusta a quantidade, toca na ficha, OK — a mesma confirmação
+  // (e o mesmo aviso de estoque) dos produtos da pasta.
   const fixos = useMemo(() => cervejas.filter((c) => c.fixo_topo), [cervejas])
-
-  function mudarFixo(id, delta) {
-    setContaFixo((s) => ({ ...s, [id]: Math.max(0, (s[id] || 0) + delta) }))
-  }
-  function lancarFixo(c) {
-    const n = contaFixo[c.id] || 0
-    if (!n) return
-    setContaFixo((s) => ({ ...s, [c.id]: 0 }))
-    // Acabou no estoque? Cai na mesma confirmação dos produtos da pasta, que
-    // já sabe avisar. Senão o próprio "Lançar N" é a confirmação.
-    if (avisoEstoque(estoque.get(c.id), n)) {
-      setQtd(n)
-      setConfirmar(c)
-      return
-    }
-    onAdd(cliente.id, c, n)
-    setUltimoTocado(c.id)
-  }
 
   function tocar(c) {
     onAdd(cliente.id, c, qtd)
@@ -2417,40 +2399,24 @@ function Detalhe({ cliente, loja = 'Comanda', cervejas, consumos, resumo, parcia
           )}
         </header>
 
-        {fixos.length > 0 && (
-          <div className="fixos">
-            {fixos.map((c) => {
-              const cor = corDe(c.nome, c.cor)
-              const n = contaFixo[c.id] || 0
-              return (
-                <div key={c.id} className="fixo" style={{ background: cor.bg, color: cor.fg }}>
-                  <button className="fixo-toque" onClick={() => mudarFixo(c.id, +1)}>
-                    <span className="fixo-nome">{reprDe(c)}</span>
-                    <span className="fixo-preco">
-                      {money(c.preco)} · {n ? `${n} = ${money(n * c.preco)}` : 'toque pra somar'}
-                    </span>
-                  </button>
-                  {n > 0 && (
-                    <>
-                      <button className="fixo-menos" onClick={() => mudarFixo(c.id, -1)} aria-label="Tirar uma">
-                        −
-                      </button>
-                      <button className="fixo-ok" onClick={() => lancarFixo(c)}>
-                        ✓ Lançar {n}
-                      </button>
-                    </>
-                  )}
-                </div>
-              )
-            })}
-          </div>
-        )}
-
-        <div className="stepper">
+        <div className={'stepper' + (fixos.length ? ' com-fixo' : '')}>
           <span>Quantidade:</span>
           <button onClick={() => setQtd((q) => Math.max(1, q - 1))}>−</button>
           <strong>{qtd}</strong>
           <button onClick={() => setQtd((q) => q + 1)}>+</button>
+          {fixos.map((c) => {
+            const cor = corDe(c.nome, c.cor)
+            return (
+              <button
+                key={c.id}
+                className="stepper-fixo"
+                style={{ background: cor.bg, color: cor.fg }}
+                onClick={() => setConfirmar(c)}
+              >
+                {c.nome}
+              </button>
+            )
+          })}
         </div>
 
         <PastasDeProdutos
