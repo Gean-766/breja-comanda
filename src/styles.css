@@ -505,6 +505,73 @@ button:active {
   text-align: center;
 }
 
+/* faixa dos produtos fixos (📌) no topo da comanda — a ficha de sinuca */
+.fixos {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 16px 0;
+}
+.fixo {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+  padding: 8px;
+  border-radius: 14px;
+}
+.fixo-toque {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 8px 10px;
+  border: none;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.12);
+  color: inherit;
+  text-align: left;
+  min-height: 56px;
+}
+.fixo-toque:active {
+  transform: scale(0.98);
+}
+.fixo-nome {
+  font-size: 18px;
+  font-weight: 800;
+}
+.fixo-preco {
+  font-size: 13px;
+  opacity: 0.85;
+}
+.fixo-menos,
+.fixo-ok {
+  border: none;
+  border-radius: 10px;
+  font-weight: 800;
+}
+.fixo-menos {
+  width: 52px;
+  font-size: 28px;
+  background: rgba(0, 0, 0, 0.25);
+  color: inherit;
+}
+.fixo-ok {
+  padding: 0 14px;
+  font-size: 16px;
+  background: var(--accent2);
+  color: #fff;
+  white-space: nowrap;
+}
+.lc-fixo {
+  opacity: 0.4;
+}
+.lc-fixo.on {
+  opacity: 1;
+  background: var(--accent);
+}
+
 .lista-prod {
   display: flex;
   flex-direction: column;
