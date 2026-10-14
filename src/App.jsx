@@ -356,6 +356,8 @@ export default function App({
   const [cervejas, setCervejas] = useState([])
   const [clientes, setClientes] = useState([])
   const [consumos, setConsumos] = useState([])
+  // vendas com mais de 48h guardadas entre recargas (ver carregar)
+  const vendasCache = useRef(null)
   const [historico, setHistorico] = useState([])
   const [entradas, setEntradas] = useState([]) // entradas de estoque (módulo Estoque)
   const [pagas, setPagas] = useState([]) // comandas já pagas nos últimos 30d (módulo Relatório)
@@ -389,17 +391,93 @@ export default function App({
     const desde24h = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
     // só as linhas desta distribuidora
     const meu = (q) => (donoId ? q.eq('distribuidora_id', donoId) : q)
+
+    // DESDE QUANDO CARREGAR AS VENDAS.
+    //
+    // Antes vinha "tudo", mas o banco entrega no máximo 1000 linhas por pedido
+    // — e o Bola 7 passou de 4000 (conferido em 14/10/2026). O app via só as
+    // 1000 mais novas, calado: o estoque deixava de descontar as vendas mais
+    // velhas (saldo maior que o real, trava de estoque frouxa) e o 30d
+    // faturava menos.
+    //
+    // Agora vem em blocos, desde onde alguém precisa: o estoque conta TODA
+    // saída desde a primeira contagem (ver calcularEstoque), e o Relatório
+    // olha até 30 noites (35 dá folga pra virada e fuso). Período mais longo
+    // o Relatório busca sozinho (ver buscarPeriodo).
+    //
+    // MAS ISSO NÃO PODE RODAR A CADA RECARGA. O app recarrega a cada venda (tempo
+    // real) e a cada 15s; 4000 vendas toda vez seriam ~1 MB por recarga em cada
+    // celular do bar, crescendo pra sempre. Então:
+    //   - carga CHEIA ao abrir e a cada 30 min (ou quando uma venda velha foi
+    //     apagada/alterada — ver o canal de tempo real);
+    //   - no meio, só as vendas das últimas 48h, somadas às velhas guardadas.
+    // Fica mais leve que antes, que puxava 1000 linhas por recarga.
+    const agora = Date.now()
+    const cache = vendasCache.current
+    const cheia = !cache || agora - cache.em > 30 * 60 * 1000
+
+    let desdeVendas = agora - 35 * 24 * 60 * 60 * 1000
+    if (cheia && abasExtra.includes('estoque')) {
+      const r = await meu(supabase.from('estoque_entradas').select('created_at'))
+        .order('created_at')
+        .limit(1)
+      const t = !r.error && r.data?.[0] ? new Date(r.data[0].created_at).getTime() : NaN
+      if (t < desdeVendas) desdeVendas = t
+    }
+    const desdeVendasISO = cheia ? new Date(desdeVendas).toISOString() : cache.corte
+
     const [c1, c2, c3, c4] = await Promise.all([
       meu(supabase.from('cervejas').select('*')).eq('ativo', true).order('ordem'),
       meu(supabase.from('clientes').select('*')).eq('aberto', true).order('created_at'),
-      meu(supabase.from('consumos').select('*')).order('created_at', { ascending: false }),
+      buscarEmBlocos((contar) =>
+        meu(supabase.from('consumos').select('*', contar ? { count: 'exact' } : undefined))
+          .gte('created_at', desdeVendasISO)
+          // crescente: venda nova entra no FIM e não empurra os blocos já pedidos
+          .order('created_at')
+          .order('id')
+      ),
       meu(supabase.from('historico').select('*'))
         .gte('created_at', desde24h)
         .order('created_at', { ascending: false }),
     ])
+
+    let vendas = null // null = falhou: mantém o que já estava na tela
+    if (!c3.error) {
+      if (cheia) {
+        vendas = c3.data
+        // Comanda aberta há mais tempo que isso (esquecida, fiado de semanas):
+        // as vendas dela vêm à parte, senão a mesa abriria pela metade.
+        const abertasVelhas = (c2.data || [])
+          .filter((c) => new Date(c.created_at).getTime() < desdeVendas)
+          .map((c) => c.id)
+        if (abertasVelhas.length) {
+          const rv = await buscarEmBlocos((contar) =>
+            meu(supabase.from('consumos').select('*', contar ? { count: 'exact' } : undefined))
+              .in('cliente_id', abertasVelhas)
+              .lt('created_at', desdeVendasISO)
+              .order('created_at')
+              .order('id')
+          )
+          if (!rv.error) vendas = [...rv.data, ...vendas]
+        }
+        const corteMs = agora - 48 * 60 * 60 * 1000
+        vendasCache.current = {
+          em: agora,
+          corte: new Date(corteMs).toISOString(),
+          // pela hora de verdade, não pelo texto: o banco escreve "+00:00" e o
+          // JavaScript "Z", e comparar os dois como texto erra na borda
+          velhas: vendas.filter((v) => new Date(v.created_at).getTime() < corteMs),
+        }
+      } else {
+        vendas = [...cache.velhas, ...c3.data]
+      }
+      // o resto do app espera a mais nova primeiro
+      vendas = vendas.slice().reverse()
+    }
+
     setCervejas(c1.data || [])
     setClientes(c2.data || [])
-    setConsumos(c3.data || [])
+    if (vendas) setConsumos(vendas)
     setHistorico(c4.data || [])
     setCarregando(false)
 
@@ -496,7 +574,13 @@ export default function App({
       // O nome do canal leva o bar junto: se um dia dois bares aparecerem na
       // mesma tela, dois canais de mesmo nome no mesmo cliente se atropelam.
       .channel('comanda-realtime-' + (donoId || 'sem-dono'))
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'consumos' }, recarregar)
+      // Venda apagada ou alterada (tirar item, renomear produto, desfazer) pode
+      // ser uma das velhas guardadas: joga o guardado fora e a próxima recarga
+      // vem cheia. Venda nova (INSERT) não precisa — cai nas últimas 48h.
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'consumos' }, (ev) => {
+        if (ev.eventType !== 'INSERT') vendasCache.current = null
+        recarregar()
+      })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'clientes' }, recarregar)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'cervejas' }, recarregar)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'historico' }, recarregar)
@@ -810,6 +894,8 @@ export default function App({
       erro('⚠️ Não consegui remover. Sem conexão?')
       return
     }
+    // pode ser uma venda velha guardada: sem isto ela voltaria na recarga
+    vendasCache.current = null
     if (!item) return
     const cli = clientes.find((c) => c.id === item.cliente_id)
     const h = await registrar(
@@ -6129,6 +6215,32 @@ function noitesParaBuscar(periodo, dia, intervalo, hojeBar) {
   if (periodo === 'intervalo') return { primeira: intervalo.de, ultima: intervalo.ate }
   if (periodo === 'dia' && dia && dia < somaDia(hojeBar, -25)) return { primeira: dia, ultima: dia }
   return null
+}
+
+// O PostgREST entrega no máximo 1000 linhas por pedido. Pergunta o total no
+// primeiro bloco e pede os outros todos de uma vez, em paralelo — é o que roda
+// a cada abertura do app, então não pode ir um bloco atrás do outro.
+// Devolve { data, error } como uma consulta comum. Repetido (venda que entrou
+// entre um bloco e outro) sai pelo id.
+async function buscarEmBlocos(montar) {
+  const BLOCO = 1000
+  const pri = await montar(true).range(0, BLOCO - 1)
+  if (pri.error) return { data: null, error: pri.error }
+  const total = pri.count ?? 0
+  const pedidos = []
+  for (let de = BLOCO; de < total; de += BLOCO) pedidos.push(montar(false).range(de, de + BLOCO - 1))
+  const resto = await Promise.all(pedidos)
+  const falhou = resto.find((r) => r.error)
+  if (falhou) return { data: null, error: falhou.error }
+  const vistos = new Set()
+  const data = []
+  for (const r of [pri, ...resto])
+    for (const linha of r.data || []) {
+      if (vistos.has(linha.id)) continue
+      vistos.add(linha.id)
+      data.push(linha)
+    }
+  return { data, error: null }
 }
 
 // O PostgREST entrega no máximo 1000 linhas por pedido. Um mês de bar passa
