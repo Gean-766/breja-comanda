@@ -358,6 +358,10 @@ export default function App({
   const [consumos, setConsumos] = useState([])
   // vendas com mais de 48h guardadas entre recargas (ver carregar)
   const vendasCache = useRef(null)
+  // o "sinal" da recarga leve: a última linha do histórico vista e quando foi
+  // a última carga completa (ver o intervalo de 15s no tempo real)
+  const ultimoHistRef = useRef(null)
+  const ultimaCargaRef = useRef(0)
   const [historico, setHistorico] = useState([])
   const [entradas, setEntradas] = useState([]) // entradas de estoque (módulo Estoque)
   const [pagas, setPagas] = useState([]) // comandas já pagas nos últimos 30d (módulo Relatório)
@@ -479,6 +483,8 @@ export default function App({
     setClientes(c2.data || [])
     if (vendas) setConsumos(vendas)
     setHistorico(c4.data || [])
+    if (!c4.error) ultimoHistRef.current = c4.data?.[0]?.id ?? null
+    ultimaCargaRef.current = Date.now()
     setCarregando(false)
 
     // Turnos de caixa (abrir/fechar o dia). Select à parte, como os de baixo:
@@ -601,9 +607,28 @@ export default function App({
     const aoVoltar = () => {
       if (document.visibilityState === 'visible') carregar()
     }
+
+    // OS 15s NÃO RECARREGAM MAIS TUDO (14/10/2026). O painel do Supabase
+    // mostrou o tempo real com ZERO conexões no mês: quem sincroniza os
+    // celulares é este intervalo, e cada volta eram ~10 consultas — o log do
+    // Supabase (cota de 1 GB) já estava na metade. Agora cada volta faz UMA
+    // pergunta pequena: "a última linha do histórico mudou?". Toda venda,
+    // remoção, pagamento e caixa grava histórico, então se mudou, recarrega na
+    // hora — a sincronia continua de 15s. O que não passa pelo histórico
+    // (entrada de estoque, desfazer, cozinha) pega a carga cheia de 2 em 2 min.
+    const aCada15s = async () => {
+      if (document.visibilityState !== 'visible') return
+      if (Date.now() - ultimaCargaRef.current > 2 * 60 * 1000) return carregar()
+      const q = supabase.from('historico').select('id')
+      const { data, error } = await (donoId ? q.eq('distribuidora_id', donoId) : q)
+        .order('created_at', { ascending: false })
+        .limit(1)
+      if (error) return carregar() // na dúvida, recarrega como antes
+      if ((data?.[0]?.id ?? null) !== ultimoHistRef.current) carregar()
+    }
     document.addEventListener('visibilitychange', aoVoltar)
     window.addEventListener('focus', aoVoltar)
-    const intervalo = setInterval(aoVoltar, 15000)
+    const intervalo = setInterval(aCada15s, 15000)
 
     return () => {
       clearTimeout(t)
