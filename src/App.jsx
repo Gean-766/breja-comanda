@@ -802,6 +802,9 @@ export default function App({
           erro('Já tem um caixa aberto agora. Feche ele antes de reabrir esta noite.')
           return
         }
+      } else if (h.tipo === 'recontar_estoque') {
+        // apaga a recontagem: o saldo volta a ser a conta de antes dela
+        await ok(supabase.from('estoque_entradas').delete().eq('id', p.entrada.id))
       } else {
         return
       }
@@ -3068,7 +3071,8 @@ function Detalhe({ cliente, loja = 'Comanda', cervejas, consumos, resumo, parcia
                   </p>
                   <p className="confirm-saida">
                     <b>Chegou mercadoria?</b> Dá a entrada dele na aba <b>Estoque</b> e ele
-                    volta a lançar na hora.
+                    volta a lançar na hora. <b>Tem na geladeira e o número está errado?</b> Use
+                    o <b>🔄 Recontar</b> no card dele.
                   </p>
                   <button className="confirm-fechar" onClick={() => setConfirmar(null)}>
                     Entendi
@@ -3784,6 +3788,7 @@ const HIST_INFO = {
   remover_produto: { icone: '❌' },
   editar_produto: { icone: '✏️' },
   mudar_preco: { icone: '💲' },
+  recontar_estoque: { icone: '🔄' },
 }
 
 // a qual pasta FIXA do histórico cada tipo pertence (o lojista não cria pastas
@@ -3804,6 +3809,7 @@ const PASTA_HIST = {
   remover_produto: 'estoque',
   editar_produto: 'estoque',
   mudar_preco: 'estoque',
+  recontar_estoque: 'estoque',
 }
 const pastaDeHist = (h) => PASTA_HIST[h.tipo] || 'comanda'
 
@@ -4437,6 +4443,14 @@ function dividirEmSubPastas(itens, pegaProduto = (x) => x) {
 // pelo NOME do produto. Só conta o que saiu DEPOIS da primeira entrada — a
 // contagem inicial é o marco zero; venda anterior a ela já estava descontada
 // no número que o dono contou na mão.
+//
+// RECONTAGEM (obs = 'recontagem') é um novo marco zero: o dono contou a
+// geladeira e o número dele vale mais que a conta. Dali pra frente o saldo é
+// "o que ele contou + o que entrou depois − o que saiu depois". Nasceu em
+// 14/10/2026: com todas as vendas enfim na conta, o Bola 7 apareceu com
+// Original 269 em −183 — cargas que chegaram e nunca viraram entrada.
+const ehRecontagem = (e) => e.obs === 'recontagem'
+
 function calcularEstoque(cervejas, entradas, consumos, perdas) {
   const repr = (c) => (c.tamanho ? `${c.nome} ${c.tamanho}` : c.nome)
 
@@ -4460,12 +4474,21 @@ function calcularEstoque(cervejas, entradas, consumos, perdas) {
   const arr = cervejas.map((c) => {
     const ents = entradasPorCerveja.get(c.id) || []
     const controlado = ents.length > 0
+    // a recontagem mais nova, se houver, é o marco; senão, a primeira entrada
+    let marco = null
+    for (const e of ents)
+      if (ehRecontagem(e) && (!marco || new Date(e.created_at) > new Date(marco.created_at))) marco = e
     let entrou = 0
     let desde = Infinity
-    for (const e of ents) {
-      entrou += Number(e.unidades) || 0
-      const t = new Date(e.created_at).getTime()
-      if (t < desde) desde = t
+    if (marco) {
+      desde = new Date(marco.created_at).getTime()
+      for (const e of ents) if (new Date(e.created_at).getTime() >= desde) entrou += Number(e.unidades) || 0
+    } else {
+      for (const e of ents) {
+        entrou += Number(e.unidades) || 0
+        const t = new Date(e.created_at).getTime()
+        if (t < desde) desde = t
+      }
     }
     let saiu = 0
     let perdidas = 0
@@ -4906,6 +4929,27 @@ function AbaEstoque({ cervejas, setCervejas, entradas, setEntradas, consumos, pe
     setEntradas((es) => [data, ...es])
   }
 
+  // Recontar: o dono contou a geladeira e esse número passa a ser o saldo
+  // (ver ehRecontagem/calcularEstoque). As vendas não mudam.
+  async function recontar(it, valor) {
+    const n = Math.round(Number(String(valor).replace(',', '.')))
+    if (!Number.isFinite(n) || n < 0 || String(valor).trim() === '') return onErro('Quantas unidades tem agora?')
+    const nome = reprDe(it.c)
+    if (!confirm(`Recontar ${nome}?
+
+O saldo passa de ${it.saldo} para ${n}.
+As vendas e o relatório não mudam.`)) return
+    const { data, error } = await supabase
+      .from('estoque_entradas')
+      .insert(carimbo({ cerveja_id: it.c.id, unidades: n, obs: 'recontagem' }))
+      .select()
+      .single()
+    if (error || !data) return onErro('⚠️ Não registrou a recontagem. Tente de novo.')
+    setEntradas((es) => [data, ...es])
+    onLog?.('recontar_estoque', `Recontou ${nome}: ${it.saldo} → ${n}`, { entrada: data, antes: it.saldo })
+    return true
+  }
+
   async function removerEntrada(id) {
     // O saldo só desconta as vendas que aconteceram DEPOIS da primeira entrada
     // do produto — ela é o marco zero da contagem. Apagando justo a mais antiga,
@@ -4969,6 +5013,7 @@ function AbaEstoque({ cervejas, setCervejas, entradas, setEntradas, consumos, pe
       onCampo={salvarCampo}
       onAbastecer={abastecer}
       onRemoverEntrada={removerEntrada}
+      onRecontar={(valor) => recontar(it, valor)}
       onExcluir={() => excluirProduto(it.c)}
       onRenomear={() => renomear(it.c)}
       onFixar={() => alternarFixoTopo(it.c, setCervejas, onErro)}
@@ -5859,12 +5904,13 @@ function OrganizarPasta({ alvo, pastas, acoes, onFechar }) {
   )
 }
 
-function EstoqueCard({ it, aberto, onAbrir, onCampo, onAbastecer, onRemoverEntrada, onExcluir, onRenomear, onFixar, onMover, onFoto, subindoFoto }) {
+function EstoqueCard({ it, aberto, onAbrir, onCampo, onAbastecer, onRemoverEntrada, onRecontar, onExcluir, onRenomear, onFixar, onMover, onFoto, subindoFoto }) {
   const { c, controlado, entrou, saiu, saldo, custoUnit, nivel, ents } = it
   // começa em "unidades" enquanto não houver unid/caixa (assim o 1º uso — a
   // contagem inicial — funciona na hora); com caixa configurada, vai pra "caixas"
   const [modo, setModo] = useState(c.unidades_caixa ? 'caixas' : 'unidades')
   const [qtd, setQtd] = useState('')
+  const [contado, setContado] = useState('') // recontagem: quanto tem agora
   const reprDe = (x) => (x.tamanho ? `${x.nome} ${x.tamanho}` : x.nome)
   const num = (v) => Number(String(v).replace(',', '.')) || 0
   const unPorCaixa = Number(c.unidades_caixa) || 0
@@ -5988,6 +6034,37 @@ function EstoqueCard({ it, aberto, onAbrir, onCampo, onAbastecer, onRemoverEntra
             )}
           </div>
 
+          {/* ---- Recontar: o número da geladeira vira o saldo ---- */}
+          {controlado && onRecontar && (
+            <div className="est-secao">
+              <span className="est-secao-tit">🔄 Recontar — quanto tem agora?</span>
+              <div className="est-abastecer">
+                <input
+                  className="est-qtd"
+                  type="number"
+                  step="1"
+                  min="0"
+                  inputMode="numeric"
+                  placeholder="unidades contadas"
+                  value={contado}
+                  onChange={(e) => setContado(e.target.value)}
+                />
+                <button
+                  className="est-add"
+                  onClick={async () => {
+                    if (await onRecontar(contado)) setContado('')
+                  }}
+                >
+                  ✓ Recontar
+                </button>
+              </div>
+              <p className="est-dica">
+                Conte a geladeira e o depósito, em unidades. O saldo passa a ser esse número e
+                cada venda desconta dali pra frente. As vendas não mudam.
+              </p>
+            </div>
+          )}
+
           {/* ---- Foto ---- */}
           {onFoto && (
             <div className="est-secao">
@@ -6107,7 +6184,9 @@ function EstoqueCard({ it, aberto, onAbrir, onCampo, onAbastecer, onRemoverEntra
                   {ents.slice(0, 4).map((e) => (
                     <div key={e.id} className="est-ent-linha">
                       <span className="est-ent-un">
-                        +{e.unidades} un.{e.caixas ? ` (${e.caixas} cx)` : ''}
+                        {ehRecontagem(e)
+                          ? `🔄 contou ${e.unidades} un.`
+                          : `+${e.unidades} un.${e.caixas ? ` (${e.caixas} cx)` : ''}`}
                       </span>
                       <span className="est-ent-data">
                         {new Date(e.created_at).toLocaleDateString('pt-BR')}
