@@ -365,6 +365,23 @@ button:active {
   color: var(--accent);
   line-height: 1.1;
 }
+/* conta dividida: o grande é o que falta (mesmo vermelho da tela da mesa) */
+.card-info .total-falta {
+  color: #ef7f70;
+}
+.card-info .total-pago {
+  color: var(--accent2);
+}
+.card-parcial {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 11.5px;
+  font-weight: 700;
+  line-height: 1.3;
+}
+.card-parcial b {
+  color: var(--accent2);
+}
 
 /* detalhe */
 .overlay {

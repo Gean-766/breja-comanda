@@ -828,6 +828,14 @@ export default function App({
     return m
   }, [clientes, consumos])
 
+  // quanto cada comanda aberta já recebeu em partes (o amigo que pagou a dele
+  // e foi embora) — pro card da lista mostrar o que FALTA, igual à tela da mesa
+  const pagoPorCliente = useMemo(() => {
+    const m = {}
+    for (const p of parciais) m[p.cliente_id] = (m[p.cliente_id] || 0) + Number(p.valor || 0)
+    return m
+  }, [parciais])
+
   const clientesFiltrados = clientes.filter((c) =>
     c.nome.toLowerCase().includes(busca.trim().toLowerCase())
   )
@@ -1394,6 +1402,12 @@ export default function App({
               // foi assim que a comanda do Ricardo virou surpresa no fechamento.
               const noite = diaDoBar(c.created_at, virada)
               const deOutraNoite = noite !== diaAtual
+              // Conta dividida: o número grande passa a ser o que FALTA. Mostrar
+              // o total cheio confundia — parecia que ninguém tinha pago nada.
+              const pago = pagoPorCliente[c.id] || 0
+              const temParcial = pago > 0.009
+              const falta = Math.max(0, r.total - pago)
+              const quitado = temParcial && falta <= 0.009
               return (
                 <button
                   key={c.id}
@@ -1404,10 +1418,24 @@ export default function App({
                   {deOutraNoite && (
                     <span className="card-noite">🌙 da noite de {diaBonito(noite)}</span>
                   )}
-                  <span className="card-info">
-                    <span className="qtd">{r.qtd} 🍺</span>
-                    <span className="total">{money(r.total)}</span>
-                  </span>
+                  {temParcial ? (
+                    <span className="card-info">
+                      <span className="qtd">{quitado ? 'Tudo pago 🎉' : 'Falta pagar'}</span>
+                      <span className={'total ' + (quitado ? 'total-pago' : 'total-falta')}>
+                        {money(quitado ? r.total : falta)}
+                      </span>
+                      <span className="card-parcial">
+                        Total {money(r.total)}
+                        <br />
+                        <b>já pago {money(pago)} ✓</b>
+                      </span>
+                    </span>
+                  ) : (
+                    <span className="card-info">
+                      <span className="qtd">{r.qtd} 🍺</span>
+                      <span className="total">{money(r.total)}</span>
+                    </span>
+                  )}
                 </button>
               )
             })}
