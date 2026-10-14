@@ -41,8 +41,33 @@ function guardarBar(id) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// ENTRADA PELO PAINEL CEO ("👤 Entrar como este lojista")
+// ---------------------------------------------------------------------------
+// O painel abre o app com #entrar=<código>&bar=<id>. O código é de uso único,
+// gerado pelo Supabase pro login do bar (ver 'entrar_como' no
+// ceo-comanda/api/admin.js). Aqui ele é trocado por uma sessão de verdade e
+// some da barra de endereço na hora — recarregar a página não o reaproveita.
+//
+// Vai no # de propósito: o navegador não manda o # pra servidor nenhum.
+function pedidoDeEntrada() {
+  try {
+    const p = new URLSearchParams(window.location.hash.slice(1))
+    const token = p.get('entrar')
+    if (!token) return null
+    window.history.replaceState(null, '', window.location.pathname + window.location.search)
+    return { token, bar: p.get('bar') }
+  } catch {
+    return null
+  }
+}
+
 export default function Portao() {
   const [sessao, setSessao] = useState(undefined) // undefined = ainda checando
+  // true enquanto troca o código do painel por sessão: segura a tela em
+  // "Entrando…" pra não piscar o bar que estava logado antes neste aparelho
+  const [entrando, setEntrando] = useState(false)
+  const [erroEntrada, setErroEntrada] = useState(null)
   const [lojas, setLojas] = useState(undefined) // undefined = ainda carregando
   const [papeis, setPapeis] = useState({}) // { [distribuidora_id]: 'dono' | 'funcionario' }
   const [escolhidoId, setEscolhidoId] = useState(barGuardado)
@@ -54,6 +79,28 @@ export default function Portao() {
   // acompanha a sessão (fica salva no celular; não pede senha toda vez)
   useEffect(() => {
     if (!isConfigured) return
+    const pedido = pedidoDeEntrada()
+    if (pedido) {
+      if (pedido.bar) {
+        guardarBar(pedido.bar)
+        setEscolhidoId(pedido.bar)
+      }
+      setEntrando(true)
+      // Deu certo: a sessão nova já está gravada, e um recarregar abre o app
+      // do zero com ela. Mais simples que trocar de login com tudo montado
+      // (bares, tempo real) e garante que nada do login anterior fica na tela.
+      supabase.auth
+        .verifyOtp({ token_hash: pedido.token, type: 'magiclink' })
+        .then(({ error }) => {
+          if (!error) return window.location.reload()
+          setErroEntrada(error.message || 'código recusado')
+          setEntrando(false)
+        })
+        .catch(() => {
+          setErroEntrada('sem conexão')
+          setEntrando(false)
+        })
+    }
     supabase.auth.getSession().then(({ data }) => setSessao(data?.session || null))
     const { data: sub } = supabase.auth.onAuthStateChange((_evt, s) => {
       setSessao(s || null)
@@ -104,6 +151,19 @@ export default function Portao() {
   }
 
   if (!isConfigured) return <App />
+  if (entrando) return <div className="centro">Entrando…</div>
+  if (erroEntrada) {
+    return (
+      <Bloqueio
+        emoji="⚠️"
+        titulo="A entrada pelo painel não funcionou"
+        texto={`O código já foi usado ou expirou (${erroEntrada}). Volte no painel e clique de novo em "Entrar como este lojista".`}
+        onTrocar={() => setErroEntrada(null)}
+        textoTrocar="Continuar"
+        onSair={sair}
+      />
+    )
+  }
   if (sessao === undefined) return <div className="centro">Carregando…</div>
   if (!sessao) return <Login />
   if (lojas === undefined) return <div className="centro">Entrando…</div>
@@ -209,7 +269,7 @@ function EscolhaBar({ lojas, onEscolher, onSair }) {
   )
 }
 
-function Bloqueio({ emoji, titulo, texto, rodape, onTrocar, onSair }) {
+function Bloqueio({ emoji, titulo, texto, rodape, onTrocar, textoTrocar = 'Ver outro bar', onSair }) {
   return (
     <div className="login-tela">
       <div className="login-caixa">
@@ -219,7 +279,7 @@ function Bloqueio({ emoji, titulo, texto, rodape, onTrocar, onSair }) {
         {rodape && <p className="login-rodape">{rodape}</p>}
         {onTrocar && (
           <button className="login-btn" onClick={onTrocar}>
-            Ver outro bar
+            {textoTrocar}
           </button>
         )}
         <button className={onTrocar ? 'login-btn login-btn-fraco' : 'login-btn'} onClick={onSair}>
