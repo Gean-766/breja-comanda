@@ -1343,6 +1343,7 @@ export default function App({
       {abasExtra.includes(aba) &&
         (aba === 'relatorio' ? (
           <Relatorio
+            donoId={donoId}
             consumos={consumos}
             cervejas={cervejas}
             pagas={pagas}
@@ -6059,8 +6060,16 @@ const PERIODOS = [
   { id: 'ontem', label: 'Ontem' },
   { id: '7d', label: '7d' },
   { id: '30d', label: '30d' },
+  { id: '60d', label: '60d' },
   { id: 'dia', label: '📅 Dia' },
+  { id: 'intervalo', label: '📅 De … até' },
 ]
+
+// Quantas noites cada aba "corrida" olha pra trás
+const NOITES_DA_ABA = { '7d': 7, '30d': 30, '60d': 60 }
+
+// Até onde o calendário do relatório deixa voltar: 12 meses.
+const DIAS_MAX_RELATORIO = 365
 
 // data de hoje no formato 'AAAA-MM-DD' (hora local) — pro <input type="date">
 function hojeISO() {
@@ -6087,15 +6096,115 @@ function noiteDaAba(periodo, dia, hojeBar) {
 //   "hoje"  = a noite que está rolando (do fechamento da anterior até agora);
 //   "ontem" = a noite de ontem, inteira, madrugada incluída;
 //   "dia"   = uma noite escolhida no calendário, inteira, madrugada incluída;
-//   7d/30d  = as últimas 7/30 noites, começando no início da mais antiga.
-function janelaPeriodo(periodo, dia, caixas = [], virada = HORA_VIRADA, diaAtual = null) {
+//   7d/30d/60d = as últimas N noites, começando no início da mais antiga;
+//   "intervalo" = da noite `de` até a noite `ate`, as duas inteiras.
+function janelaPeriodo(periodo, dia, caixas = [], virada = HORA_VIRADA, diaAtual = null, intervalo = null) {
   const agora = Date.now()
   const atual = diaAtual || diaAtualDoBar(caixas, virada, agora)
+  if (periodo === 'intervalo' && intervalo) {
+    return {
+      inicio: janelaDoDia(intervalo.de, caixas, virada, agora).inicio,
+      fim: janelaDoDia(intervalo.ate, caixas, virada, agora).fim,
+    }
+  }
   const noite = noiteDaAba(periodo, dia, atual)
   if (noite) return janelaDoDia(noite, caixas, virada, agora)
-  const dias = periodo === '7d' ? 7 : 30
+  const dias = NOITES_DA_ABA[periodo] || 30
   const { inicio } = janelaDoDia(somaDia(atual, -(dias - 1)), caixas, virada, agora)
   return { inicio, fim: agora }
+}
+
+// ---------------------------------------------------------------------------
+// RELATÓRIO DE PERÍODO LONGO: busca no banco, não na memória do app
+// ---------------------------------------------------------------------------
+// O app carrega ao abrir só o que a noite precisa: as comandas pagas dos
+// últimos 30 dias, os últimos turnos de caixa. Até 30d o relatório se vira com
+// isso. 60d, um intervalo do calendário ou uma noite antiga caem fora dessa
+// memória — e mostrariam R$ 0,00 calados. Esses buscam no banco SÓ o período
+// pedido, e o resto do relatório faz a conta igualzinho.
+//
+// Devolve as noites a buscar, ou null quando a memória do app já cobre.
+function noitesParaBuscar(periodo, dia, intervalo, hojeBar) {
+  if (periodo === '60d') return { primeira: somaDia(hojeBar, -59), ultima: hojeBar }
+  if (periodo === 'intervalo') return { primeira: intervalo.de, ultima: intervalo.ate }
+  if (periodo === 'dia' && dia && dia < somaDia(hojeBar, -25)) return { primeira: dia, ultima: dia }
+  return null
+}
+
+// O PostgREST entrega no máximo 1000 linhas por pedido. Um mês de bar passa
+// disso fácil, então vai de 1000 em 1000 até acabar.
+async function buscarTodas(montar) {
+  const tudo = []
+  for (let de = 0; ; de += 1000) {
+    const { data, error } = await montar().range(de, de + 999)
+    if (error) throw error
+    tudo.push(...(data || []))
+    if (!data || data.length < 1000) return tudo
+  }
+}
+
+async function buscarPeriodo(donoId, primeira, ultima) {
+  const meu = (q) => (donoId ? q.eq('distribuidora_id', donoId) : q)
+  // Folga de uma noite de cada lado: a janela exata depende da hora em que o
+  // caixa fechou, e quem corta no minuto certo é o relatório, depois.
+  const ini = new Date(viradaDe(somaDia(primeira, -1))).toISOString()
+  const fim = new Date(viradaDe(somaDia(ultima, 2))).toISOString()
+  // As tabelas opcionais (perdas, parciais, caixas) podem não existir num bar
+  // que nunca rodou o SQL delas: aí vêm vazias, não derrubam o relatório.
+  const opcional = (p) => p.catch(() => [])
+  const [consumos, pagas, parciais, perdas, caixas] = await Promise.all([
+    buscarTodas(() =>
+      meu(supabase.from('consumos').select('*'))
+        .gte('created_at', ini).lt('created_at', fim)
+        .order('created_at').order('id')
+    ),
+    buscarTodas(() =>
+      meu(supabase.from('clientes').select('*'))
+        .eq('aberto', false).gte('pago_em', ini).lt('pago_em', fim)
+        .order('pago_em').order('id')
+    ),
+    opcional(buscarTodas(() =>
+      meu(supabase.from('pagamentos_parciais').select('*'))
+        .gte('created_at', ini).lt('created_at', fim)
+        .order('created_at').order('id')
+    )),
+    opcional(buscarTodas(() =>
+      meu(supabase.from('perdas').select('*'))
+        .gte('created_at', ini).lt('created_at', fim)
+        .order('created_at').order('id')
+    )),
+    opcional(buscarTodas(() =>
+      meu(supabase.from('caixas').select('*'))
+        .gte('dia', somaDia(primeira, -1)).lte('dia', ultima)
+        .order('aberto_em').order('id')
+    )),
+  ])
+  return { consumos, pagas, parciais, perdas, caixas }
+}
+
+function useBuscaRelatorio(donoId, busca) {
+  const chave = busca ? `${busca.primeira}|${busca.ultima}` : null
+  const [estado, setEstado] = useState({ chave: null, dados: null, erro: null })
+  useEffect(() => {
+    if (!chave || !isConfigured) return
+    let vivo = true
+    const [primeira, ultima] = chave.split('|')
+    buscarPeriodo(donoId, primeira, ultima)
+      .then((dados) => vivo && setEstado({ chave, dados, erro: null }))
+      .catch((e) => vivo && setEstado({ chave, dados: null, erro: motivoDoErro(e) }))
+    return () => {
+      vivo = false
+    }
+  }, [chave, donoId])
+  // resposta de outro período (o dono trocou de aba no meio) não serve
+  return estado.chave === chave ? estado : { chave, dados: null, erro: null }
+}
+
+// 'AAAA-MM-DD' → '05/01/2026' (o intervalo pode atravessar o ano)
+function diaComAno(dia) {
+  if (!dia) return ''
+  const [a, m, d] = dia.split('-')
+  return `${d}/${m}/${a}`
 }
 
 // "das 19:04 às 03:12" — avisando quando a noite atravessa a meia-noite
@@ -6193,13 +6302,14 @@ function calcularCaixa({ pagas, abertas, parciais, totalPorCliente, parcialPorCl
 }
 
 function Relatorio({
-  consumos,
+  donoId = null,
+  consumos: consumosApp,
   cervejas = [],
-  pagas = [],
+  pagas: pagasApp = [],
   abertas = [],
-  perdas = [],
-  parciais = [],
-  caixas = [],
+  perdas: perdasApp = [],
+  parciais: parciaisApp = [],
+  caixas: caixasApp = [],
   virada = HORA_VIRADA,
   temCaixas = false,
   caixaAberto = null,
@@ -6209,9 +6319,34 @@ function Relatorio({
   onFecharCaixa = null,
 }) {
   const [periodo, setPeriodo] = useState('hoje')
-  const hojeBar = diaAtual || diaAtualDoBar(caixas, virada)
+  const hojeBar = diaAtual || diaAtualDoBar(caixasApp, virada)
   // noite escolhida no calendário (modo 'dia') — começa na de hoje
   const [dia, setDia] = useState(() => hojeBar)
+  // modo 'intervalo': de uma noite até outra (começa nos últimos 30 dias)
+  const [de, setDe] = useState(() => somaDia(hojeBar, -29))
+  const [ate, setAte] = useState(() => hojeBar)
+  const intervalo = de <= ate ? { de, ate } : { de: ate, ate: de } // escolheu ao contrário? vira
+  // o calendário não volta mais que 12 meses
+  const diaMin = somaDia(hojeBar, -DIAS_MAX_RELATORIO)
+  const diaMax = hojeBar > hojeISO() ? hojeBar : hojeISO()
+
+  // Período fora da memória do app? Busca no banco (ver noitesParaBuscar).
+  const busca = noitesParaBuscar(periodo, dia, intervalo, hojeBar)
+  const remoto = useBuscaRelatorio(donoId, busca)
+  // Enquanto busca, a tela fica vazia — nunca mostra o número de outro período
+  const fonte = busca ? remoto.dados || { consumos: [], pagas: [], parciais: [], perdas: [], caixas: [] } : null
+  const buscando = !!busca && !remoto.dados && !remoto.erro
+  const consumos = fonte ? fonte.consumos : consumosApp
+  const pagas = fonte ? fonte.pagas : pagasApp
+  const parciais = fonte ? fonte.parciais : parciaisApp
+  const perdas = fonte ? fonte.perdas : perdasApp
+  // os turnos buscados SOMAM aos que o app já tem (a noite de hoje vem de lá)
+  const caixas = useMemo(() => {
+    if (!fonte || !fonte.caixas.length) return caixasApp
+    const m = new Map(caixasApp.map((c) => [c.id, c]))
+    for (const c of fonte.caixas) m.set(c.id, c)
+    return [...m.values()].sort((a, b) => (a.aberto_em < b.aberto_em ? 1 : -1))
+  }, [fonte, caixasApp])
   // a noite que está na tela — null em 7d/30d, que olham várias
   const noiteDoPeriodo = noiteDaAba(periodo, dia, hojeBar)
   // abas que olham UMA noite: são as que têm gaveta, turno e nome de dia
@@ -6255,7 +6390,7 @@ function Relatorio({
 
   // CAIXA do período (ver calcularCaixa, logo acima do Relatório)
   const caixa = useMemo(() => {
-    const { inicio, fim } = janelaPeriodo(periodo, dia, caixas, virada, hojeBar)
+    const { inicio, fim } = janelaPeriodo(periodo, dia, caixas, virada, hojeBar, intervalo)
     return calcularCaixa({
       pagas,
       abertas,
@@ -6276,6 +6411,8 @@ function Relatorio({
     caixas,
     virada,
     hojeBar,
+    intervalo.de,
+    intervalo.ate,
   ])
 
   // Quem está devendo agora, com nome — o "3 comandas sem pagar" vira lista.
@@ -6296,7 +6433,7 @@ function Relatorio({
   }, [cervejas])
 
   const dados = useMemo(() => {
-    const { inicio, fim } = janelaPeriodo(periodo, dia, caixas, virada, hojeBar)
+    const { inicio, fim } = janelaPeriodo(periodo, dia, caixas, virada, hojeBar, intervalo)
     const noPeriodo = consumos.filter((c) => {
       const t = new Date(c.created_at).getTime()
       return t >= inicio && t <= fim
@@ -6352,11 +6489,11 @@ function Relatorio({
       },
       vazio: noPeriodo.length === 0,
     }
-  }, [consumos, custoPorNome, clientePorId, periodo, dia, caixas, virada, hojeBar])
+  }, [consumos, custoPorNome, clientePorId, periodo, dia, caixas, virada, hojeBar, intervalo.de, intervalo.ate])
 
   // Perdas do período — bloco à parte (NUNCA entra no faturamento/venda)
   const perdasResumo = useMemo(() => {
-    const { inicio, fim } = janelaPeriodo(periodo, dia, caixas, virada, hojeBar)
+    const { inicio, fim } = janelaPeriodo(periodo, dia, caixas, virada, hojeBar, intervalo)
     let qtd = 0
     let valor = 0
     const porProd = new Map()
@@ -6369,7 +6506,7 @@ function Relatorio({
       porProd.get(p.beer_nome).qtd += p.quantidade
     }
     return { qtd, valor, lista: [...porProd.values()].sort((a, b) => b.qtd - a.qtd) }
-  }, [perdas, periodo, dia, caixas, virada, hojeBar])
+  }, [perdas, periodo, dia, caixas, virada, hojeBar, intervalo.de, intervalo.ate])
 
   return (
     <main className="conteudo">
@@ -6402,18 +6539,51 @@ function Relatorio({
             className="rel-dia-input"
             type="date"
             value={dia}
-            max={hojeBar > hojeISO() ? hojeBar : hojeISO()}
-            onChange={(e) => setDia(e.target.value)}
+            min={diaMin}
+            max={diaMax}
+            onChange={(e) => e.target.value && setDia(e.target.value)}
           />
         </div>
       )}
 
+      {periodo === 'intervalo' && (
+        <div className="rel-dia">
+          <span className="rel-dia-lbl">De</span>
+          <input
+            className="rel-dia-input"
+            type="date"
+            value={de}
+            min={diaMin}
+            max={diaMax}
+            onChange={(e) => e.target.value && setDe(e.target.value)}
+          />
+          <span className="rel-dia-lbl">até</span>
+          <input
+            className="rel-dia-input"
+            type="date"
+            value={ate}
+            min={diaMin}
+            max={diaMax}
+            onChange={(e) => e.target.value && setAte(e.target.value)}
+          />
+        </div>
+      )}
+
+      {buscando && <p className="rel-janela">⏳ Buscando as vendas do período…</p>}
+      {remoto.erro && (
+        <p className="rel-janela">⚠️ Não consegui buscar esse período: {remoto.erro}</p>
+      )}
+
       {/* a noite de verdade: das X às Y, madrugada incluída */}
       <p className="rel-janela">
-        {periodo === '7d' || periodo === '30d'
-          ? `Últimas ${periodo === '7d' ? 7 : 30} noites, até agora.`
+        {NOITES_DA_ABA[periodo]
+          ? `Últimas ${NOITES_DA_ABA[periodo]} noites, até agora.`
+          : periodo === 'intervalo'
+          ? `Da noite de ${diaComAno(intervalo.de)} até a de ${diaComAno(intervalo.ate)} · ${
+              Math.round((viradaDe(intervalo.ate) - viradaDe(intervalo.de)) / 86400000) + 1
+            } noites, madrugadas incluídas.`
           : `Noite de ${diaBonito(noiteDoPeriodo)} · ${janelaTexto(
-              janelaPeriodo(periodo, dia, caixas, virada, hojeBar)
+              janelaPeriodo(periodo, dia, caixas, virada, hojeBar, intervalo)
             )}`}
         {caixaDoPeriodo && umaNoite && (
           <>
@@ -6427,7 +6597,7 @@ function Relatorio({
         )}
       </p>
 
-      {dados.vazio && perdasResumo.qtd === 0 ? (
+      {buscando || remoto.erro ? null : dados.vazio && perdasResumo.qtd === 0 ? (
         <p className="vazio">
           {noitePassada
             ? `Nenhuma venda na noite de ${diaBonito(noiteDoPeriodo)}.`
