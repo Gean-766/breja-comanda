@@ -3401,6 +3401,22 @@ function SeletorBar({ lojas, atual, onTrocar }) {
 
 // `carimbo` gruda o bar certo em cada gravação. O padrão devolve a linha sem
 // mexer: assim o componente continua funcionando se alguém montar ele solto.
+// 📌 fixa (ou solta) o produto ao lado do "+" da comanda — ver ficha-fixa.sql.
+// Mora aqui fora porque o cadastro tem duas casas: a aba Produtos (bar sem
+// estoque) e a aba Estoque (bar com estoque, onde a de Produtos some).
+async function alternarFixoTopo(c, setCervejas, onErro) {
+  const novo = !c.fixo_topo
+  const { error } = await supabase.from('cervejas').update({ fixo_topo: novo }).eq('id', c.id)
+  if (error) {
+    return onErro(
+      /fixo_topo/i.test(error.message || '')
+        ? '⚠️ Falta ligar isso no banco (supabase/ficha-fixa.sql).'
+        : '⚠️ Não salvou. Tente de novo.'
+    )
+  }
+  setCervejas((cs) => cs.map((x) => (x.id === c.id ? { ...x, fixo_topo: novo } : x)))
+}
+
 function AbaCervejas({ cervejas, setCervejas, onErro, onLog, carimbo = (x) => x }) {
   const [nome, setNome] = useState('')
   const [tamanho, setTamanho] = useState('') // livre: "600ml", "Lata", "Litrão"…
@@ -3436,19 +3452,7 @@ function AbaCervejas({ cervejas, setCervejas, onErro, onLog, carimbo = (x) => x 
       )
   }
 
-  // 📌 fixa (ou solta) o produto no topo de toda comanda — ver ficha-fixa.sql
-  async function alternarFixo(c) {
-    const novo = !c.fixo_topo
-    const { error } = await supabase.from('cervejas').update({ fixo_topo: novo }).eq('id', c.id)
-    if (error) {
-      return onErro(
-        /fixo_topo/i.test(error.message || '')
-          ? '⚠️ Falta ligar isso no banco (supabase/ficha-fixa.sql).'
-          : '⚠️ Não salvou. Tente de novo.'
-      )
-    }
-    setCervejas((cs) => cs.map((x) => (x.id === c.id ? { ...x, fixo_topo: novo } : x)))
-  }
+  const alternarFixo = (c) => alternarFixoTopo(c, setCervejas, onErro)
 
   function abrirEdicao(c) {
     setEditId(c.id)
@@ -4880,6 +4884,7 @@ function AbaEstoque({ cervejas, setCervejas, entradas, setEntradas, consumos, pe
       onRemoverEntrada={removerEntrada}
       onExcluir={() => excluirProduto(it.c)}
       onRenomear={() => renomear(it.c)}
+      onFixar={() => alternarFixoTopo(it.c, setCervejas, onErro)}
       onMover={() => setMovendo(it.c)}
       onFoto={trocarFoto}
       subindoFoto={fotoSubindo === it.c.id}
@@ -5767,7 +5772,7 @@ function OrganizarPasta({ alvo, pastas, acoes, onFechar }) {
   )
 }
 
-function EstoqueCard({ it, aberto, onAbrir, onCampo, onAbastecer, onRemoverEntrada, onExcluir, onRenomear, onMover, onFoto, subindoFoto }) {
+function EstoqueCard({ it, aberto, onAbrir, onCampo, onAbastecer, onRemoverEntrada, onExcluir, onRenomear, onFixar, onMover, onFoto, subindoFoto }) {
   const { c, controlado, entrou, saiu, saldo, custoUnit, nivel, ents } = it
   // começa em "unidades" enquanto não houver unid/caixa (assim o 1º uso — a
   // contagem inicial — funciona na hora); com caixa configurada, vai pra "caixas"
@@ -5820,6 +5825,16 @@ function EstoqueCard({ it, aberto, onAbrir, onCampo, onAbastecer, onRemoverEntra
             )}
           </div>
         </button>
+        {onFixar && (
+          <button
+            className={'est-card-x lc-fixo' + (c.fixo_topo ? ' on' : '')}
+            onClick={onFixar}
+            aria-label={c.fixo_topo ? 'Tirar do lado do + da comanda' : 'Fixar do lado do + da comanda'}
+            title={c.fixo_topo ? 'Fixo na comanda' : 'Fixar na comanda'}
+          >
+            📌
+          </button>
+        )}
         <button className="est-card-x" onClick={onRenomear} aria-label="Renomear produto">
           ✏️
         </button>

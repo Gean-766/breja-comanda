@@ -528,6 +528,9 @@ button:active {
   opacity: 1;
   background: var(--accent);
 }
+.est-card-x.lc-fixo {
+  padding: 0 10px;
+}
 
 .lista-prod {
   display: flex;
