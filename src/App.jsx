@@ -4359,10 +4359,50 @@ const ICONES_PASTA = {
   'gelo': '🧊',
   'cigarro': '🚬',
 }
+// Nome que não bateu exato cai na busca por palavra — o Snooker Bar chamou
+// as pastas de "LONG NECK", "REFRI 2 LITROS", "ENERGETICOS"… Ordem importa:
+// "Cerveja lata" tem que cair na cerveja, não na lata; "Refri zero" no zero.
+const ICONES_PASTA_KW = [
+  ['sinuca', '🎱'],
+  ['ficha', '🎱'],
+  ['zero', '0️⃣'],
+  ['long neck', '🍾'],
+  ['cerveja', '🍺'],
+  ['chopp', '🍺'],
+  ['energetico', '⚡'],
+  ['isotonico', '⚡'],
+  ['agua', '💧'],
+  ['suco', '🧃'],
+  ['salgad', '🍟'],
+  ['petisco', '🍢'],
+  ['porc', '🍢'],
+  ['dose', '🥃'],
+  ['whisky', '🥃'],
+  ['destilado', '🥃'],
+  ['cachaca', '🍶'],
+  ['sorvete', '🍦'],
+  ['picole', '🍦'],
+  ['bala', '🍬'],
+  ['doce', '🍬'],
+  ['chiclete', '🍬'],
+  ['trident', '🍬'],
+  ['halls', '🍬'],
+  ['chocolate', '🍫'],
+  ['gelo', '🧊'],
+  ['cigarro', '🚬'],
+  ['retornavel', '♻️'],
+  ['lata', '🥫'],
+  ['litro', '🧴'],
+  ['pet', '🧴'],
+  ['refri', '🥤'],
+]
 function iconePasta(label) {
   const known = CATEGORIAS_ESTOQUE.find((c) => c.label === label)
   if (known) return known.icone
-  return ICONES_PASTA[normalizar(label)] || '🏷️'
+  const n = normalizar(label)
+  if (ICONES_PASTA[n]) return ICONES_PASTA[n]
+  for (const [kw, ic] of ICONES_PASTA_KW) if (n.includes(kw)) return ic
+  return '🏷️'
 }
 
 // Agrupa em pastas. É a MESMA divisão nos três lugares que mostram produto —
